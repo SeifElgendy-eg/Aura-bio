@@ -18,7 +18,8 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 6.2 | CO₂ creep and sleep debt now relative to each astronaut's or cabin's own baseline; sleep debt follows Van Dongen et al. 2003; expected results updated |
 | 5.4 (new) | Real-data replay of ISS CO₂ and dose |
 | 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
-| 6.2 | New immune dysregulation scenario |
+| 6.2 | New immune dysregulation and solar particle event scenarios |
+| 8.6 | DOIs added |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
@@ -332,7 +333,7 @@ Status: done. `data/fetch.py` downloads every source into `data/raw/` and record
 | 3 | [Curiosity RAD](https://typeset.io/pdf/mars-surface-radiation-environment-measured-with-the-mars-244eildtx0.pdf) | Mars cruise and surface dose rates | Mars presets | Published values |
 | 4 | [PhysioNet BIDSleep](https://www.physionet.org/content/bidsleep-dataset/1.0.1/) | 253 nights, 47 adults: heart rate and expert-scored sleep stages (accelerometer skipped) | Calibrating heart rate and sleep | Downloaded (38 MB, hash-checked), per-night metrics computed. Calibrates the simulator |
 | 5 | OSDR Inspiration4: OSD-569, OSD-575 | Crew blood count, metabolic, cardiovascular and cytokine panels, 4 crew × 7 time points | Anchors for analyzer signals and immune-risk score | Downloaded (0.3 MB), tidy table and before/after-flight change computed (e.g. lymphocytes −27%, IL-6 +90% the day after landing). Not yet a simulator signal |
-| 6 | [NOAA SWPC proton flux](https://www.swpc.noaa.gov/node/39) | 7 days of 5-minute proton flux | Optional solar particle event | Downloaded, not processed |
+| 6 | [NOAA SWPC proton flux](https://www.swpc.noaa.gov/node/39) | 7 days of 5-minute proton flux | Optional solar particle event | Downloaded; the window holds no event (≥10 MeV peak 0.48, storm level starts at 10), so the solar scenario uses a published ISS event instead |
 
 Priorities 1 to 4 are enough to state that real NASA data runs through the system. Datasets listed on the official challenge page take precedence over this list.
 
@@ -395,6 +396,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Deconditioning (exercise lapses) | Exercise completion drops to 70%; resting heart rate rises 12 bpm over 21 days; HRV down 10%. Sizes are this plan's proposal: on the ISS, resting HR stays flat when crew exercise (Hughson et al.); bed rest without exercise raises it | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
+| Solar particle event | On day 21 every crew member's dose is 51% higher for one day (+0.146 mGy on the ISS, as measured on 10 Sep 2017, Berger et al. 2018); other presets scaled by their own level (derived) | Radiation amber; cumulative dose steps up; dose is a model input, so the anomaly score can react |
 | Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 20% of weekly samples (from 5%) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
 
 ### 6.3 Model performance
@@ -463,16 +465,27 @@ Licences were not checked for most repos. Confirm each before copying code.
 
 ### 8.6 Papers used for simulator values
 
-| Paper | Used for |
-| --- | --- |
-| Van Dongen, Maislin, Mullington, Dinges 2003, *SLEEP* 26:117 | Sleep debt: lapses +14 per 10-min test by day 14 in the 4 h group (curve t^0.78); sleepiness ~1 point of 7, levelling off (t^0.24), used as a mood proxy |
-| Law et al. 2014, *J Occup Environ Med* 56:477 | CO₂ and headache: odds roughly double per +1 mmHg; keep 7-day average below 2.5 mmHg |
-| Barger et al. 2014, *Lancet Neurology* | ISS crews sleep 6.09 h a night on average |
-| Bellenger et al. 2022, *Sensors* 22:6723 | HRV day-to-day variation, 3–13% of log-RMSSD |
-| Nunan et al. 2010, systematic review (21,438 adults) | Short-term RMSSD average ~42 ms, normal range 19–75 ms |
-| Kikuya et al. 2008, *Hypertension* (Ohasama study) | Home systolic BP day-to-day spread ~9 mmHg; level 117.3, between-person SD 13.4 |
-| Zhang et al. 2020, *Science Advances* 6:eaaz1334 | Moon surface dose: 13.2 µGy/h absorbed, 1,369 µSv/day dose equivalent |
-| Zeitlin et al. 2013, *Science* 340:1080; Hassler et al. 2014, *Science* 343 | Mars transit and surface dose |
-| NASA-STD-3001 | Radiation limits: 600 mSv career, 250 mSv per solar event |
-| Hughson et al. 2012, *J Appl Physiol* | ISS resting HR unchanged in flight with exercise; HRV high-frequency power falls |
-| Song et al. 2025, *IEEE TBME*; BIDSleep dataset (ODC-By) | Wearable heart rate and sleep; cite when used |
+DOIs marked * were taken from memory and should be checked when the paper is opened.
+
+| Paper | DOI | Used for |
+| --- | --- | --- |
+| Van Dongen, Maislin, Mullington, Dinges 2003, *SLEEP* 26:117 | 10.1093/sleep/26.2.117 | Sleep debt: lapses +14 per 10-min test by day 14 in the 4 h group (curve t^0.78); sleepiness ~1 point of 7, levelling off (t^0.24), used as a mood proxy |
+| Law et al. 2014, *J Occup Environ Med* 56:477 | 10.1097/JOM.0000000000000158 * | CO₂ and headache: odds roughly double per +1 mmHg; keep 7-day average below 2.5 mmHg |
+| Barger et al. 2014, *Lancet Neurology* | 10.1016/S1474-4422(14)70122-X * | ISS crews sleep 6.09 h a night on average |
+| Bellenger et al. 2022, *Sensors* 22:6723 | 10.3390/s22186723 * | HRV day-to-day variation, 3–13% of log-RMSSD |
+| Nunan et al. 2010, *Pacing Clin Electrophysiol* | 10.1111/j.1540-8159.2010.02841.x * | Short-term RMSSD average ~42 ms, normal range 19–75 ms |
+| Kikuya et al. 2008, *Hypertension* (Ohasama study) | 10.1161/HYPERTENSIONAHA.107.104620 * | Home systolic BP day-to-day spread ~9 mmHg; level 117.3, between-person SD 13.4 |
+| Coskun et al. 2020, *Clin Chem Lab Med* 58:25 | 10.1515/cclm-2019-0658 | Lymphocytes: within-person 10.1%, between-person 23.9% |
+| Bigley et al. 2019, *J Appl Physiol* | 10.1152/japplphysiol.00761.2018 * | NK cell activity −50% at flight day 90 |
+| Mehta et al. 2017, *npj Microgravity* | 10.1038/s41526-017-0015-y | 61% of ISS crew shed herpesviruses |
+| Agha et al. 2020, *J Appl Physiol* | 10.1152/japplphysiol.00560.2019 | Salivary sIgA rises in flight (signal not simulated) |
+| Zhang et al. 2020, *Science Advances* 6:eaaz1334 | 10.1126/sciadv.aaz1334 | Moon surface dose: 13.2 µGy/h absorbed, 1,369 µSv/day dose equivalent |
+| Zeitlin et al. 2013, *Science* 340:1080 | 10.1126/science.1235989 * | Mars transit dose equivalent 1.84 mSv/day |
+| Hassler et al. 2014, *Science* 343 | 10.1126/science.1244797 | Mars cruise 0.48 and surface 0.21 mGy/day; surface 0.67 mSv/day |
+| Berger et al. 2018, *Space Weather* (DOSIS 3D) | not found ([PDF](https://elib.dlr.de/120788/1/ME-SBA-2018-Berger-Matthi%C3%A4_et%20al-DOSIS-3D_Space%20Weather.pdf)) | Solar event of 10 Sep 2017 added 0.146 mGy on the ISS |
+| NASA-STD-3001 | — | Radiation limits: 600 mSv career, 250 mSv per solar event |
+| Hughson et al. 2012, *J Appl Physiol* | 10.1152/japplphysiol.01196.2011 * | ISS resting HR unchanged in flight with exercise; HRV high-frequency power falls |
+| Exercise on the ISS, *npj Microgravity* 2023 | 10.1038/s41526-023-00256-5 | ISS crews log ~600 min of exercise a week (450–720) |
+| Song et al. 2025, *IEEE TBME*; BIDSleep dataset (ODC-By) | — | Wearable heart rate and sleep; cite when used |
+
+Papers still wanted (would replace guesses): Jones, Basner, Dinges et al. 2022, *SLEEP* 45(3), 10.1093/sleep/zsac006 (normal lapse and stress levels in ISS crew); Basner, Mollicone, Dinges 2011, *Acta Astronautica*, 10.1016/j.actaastro.2011.07.015 * (rested lapse rate on the 3-minute test).

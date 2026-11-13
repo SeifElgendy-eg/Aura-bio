@@ -25,6 +25,7 @@ class Effect:
     value: float
     ramp_days: int = 5
     power: float | None = None
+    duration_days: int | None = None  # effect stops after this many days (e.g. a one-day event)
 
 
 @dataclass
@@ -63,6 +64,12 @@ SCENARIOS: dict[str, Scenario] = {
         "rmssd_ms": Effect("mul", -0.1, 7),
     }),
     "sensor_loss": Scenario("sensor_loss", drop_signals=["resting_hr_bpm", "rmssd_ms"]),
+    # Solar particle event, one day: the 10 Sep 2017 event added 0.146 mGy (Si) on the ISS (Berger et
+    # al. 2018, DOSIS 3D), i.e. +51% of a normal 0.285 mGy ISS day. Applied as a percentage so it scales
+    # to each astronaut and preset (for non-station presets that scaling is derived, not measured).
+    "solar_event": Scenario("solar_event", effects={
+        "dose_mgy": Effect("mul", 0.146 / 0.285, 1, duration_days=1),
+    }),
     # Long-duration immune dysregulation, ramping in over 60 days (NK drop measured at flight day 90,
     # Bigley et al. 2019). Sizes: lymphocytes -27%, IL-6 +90% (Inspiration4 average, day after
     # landing); NK activity -50% (Bigley 2019). Shedding chance per weekly sample 5% -> 20%: derived,
@@ -95,8 +102,12 @@ def effect_ramp(scenario: Scenario, name: str, n_days: int) -> np.ndarray:
     eff = scenario.effects.get(name)
     if not eff:
         return np.zeros(n_days)
-    t = np.clip(np.arange(n_days) - scenario.onset_day + 1, 0, None) / eff.ramp_days
-    return t ** eff.power if eff.power else np.clip(t, 0, 1)
+    since = np.arange(n_days) - scenario.onset_day + 1        # 1 on the onset day
+    t = np.clip(since, 0, None) / eff.ramp_days
+    ramp = t ** eff.power if eff.power else np.clip(t, 0, 1)
+    if eff.duration_days:
+        ramp = np.where(since > eff.duration_days, 0.0, ramp)
+    return ramp
 
 
 def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str) -> np.ndarray:

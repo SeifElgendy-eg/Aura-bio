@@ -89,3 +89,15 @@ def test_immune_scenario_sizes():
         shed_post.append(v[v.index >= sc.onset_day + 60].mean())
     assert abs(np.mean(post) / np.mean(pre) - 0.73) < 0.05          # lymphocytes -27%
     assert np.mean(shed_pre) < 0.10 and abs(np.mean(shed_post) - 0.20) < 0.06
+
+
+def test_solar_event_is_one_day_spike():
+    sc = SCENARIOS["solar_event"]
+    rng = np.random.default_rng(5)
+    ratios = []
+    for _ in range(200):
+        d = simulate(make_profile(rng), sc.days, rng, sc)["dose_mgy"]
+        normal = d.drop(index=sc.onset_day).mean()
+        ratios.append(d[sc.onset_day] / normal)
+        assert abs(d[sc.onset_day + 1] / normal - 1) < 0.25                # back to normal next day
+    assert abs(np.mean(ratios) - (1 + 0.146 / 0.285)) < 0.05               # +51% on the event day
