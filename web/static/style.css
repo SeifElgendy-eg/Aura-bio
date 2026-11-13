@@ -948,6 +948,32 @@ details.tablet-collapsible[open] summary.tablet-collapsible-summary {
   border-left-color: var(--color-status-green);
 }
 
+/* resolved, waiting for acknowledgement: keep the level colour on the edge, drop the glow */
+.pattern-card.resolved {
+  opacity: 0.7;
+  box-shadow: none;
+  background: var(--color-bg-surface);
+}
+
+.alert-state-chip {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text-dim);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 4px);
+  padding: 2px 6px;
+  margin-bottom: 4px;
+}
+
+.alert-ack-btn {
+  width: 100%;
+  justify-content: center;
+  min-height: 40px;
+  margin-top: 6px;
+}
+
 .pattern-card-meta {
   display: flex;
   justify-content: space-between;

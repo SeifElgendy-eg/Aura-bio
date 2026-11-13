@@ -93,6 +93,7 @@ function alertView(a) {
   const fired = a.fired || {};
   return {
     id: String(a.alert_id), crew_id: CREW, level: a.level, ts: a.started_ts,
+    is_pattern: Boolean(a.id), active: a.active, acknowledged: Boolean(a.acknowledged_at),
     pattern_name: a.id ? a.name : `${SIGNAL_NAMES[a.signal] || a.signal} red`,
     signals_fired: Object.keys(fired),
     involved_systems: [...new Set(Object.keys(fired).map(systemOfSignal).filter(Boolean))],
@@ -123,7 +124,8 @@ function toTelemetry(status, overview) {
   const m = status && status.mission;
   return {
     biomarkers, systems: SYSTEMS,
-    alerts: ((status && status.alerts) || []).map(alertView),
+    // active first; resolved ones stay until acknowledged
+    alerts: ((status && status.alerts) || []).map(alertView).sort((x, y) => y.active - x.active),
     mission: m ? presetView(m.name, m) : currentMission,
     presets: Object.fromEntries(Object.entries(presetCatalog).map(([id, p]) => [id, presetView(id, p)])),
     crew: (overview || []).map(c => ({ id: c.crew_id, name: c.crew_id.toUpperCase(), role: 'Crew member',
@@ -514,7 +516,7 @@ function updateUI() {
   updateHotspotStatuses();
   renderAlerts();
   updateUrgentHudBanner();
-  checkAudioAlerts(telemetryData.alerts);
+  checkAudioAlerts(liveAlerts(telemetryData.alerts));
   renderTelemetryList();
   renderConnectorLines();
   if (currentFocusedOrganId) {
@@ -561,6 +563,20 @@ function updateHotspotStatuses() {
   });
 }
 
+// alerts that should still sound and fill the banner: active and not yet acknowledged
+const liveAlerts = alerts => (alerts || []).filter(a => a.active && !a.acknowledged);
+
+async function acknowledgeAlert(alertId) {
+  playAckCue();
+  await fetch(`/alerts/${alertId}/ack`, { method: 'POST' });  // the core pushes the new status over /ws
+}
+
+function alertStateChip(a) {
+  if (!a.active) return '<span class="alert-state-chip">RESOLVED · AWAITING ACK</span>';
+  if (a.acknowledged) return '<span class="alert-state-chip">ACKNOWLEDGED · STILL ACTIVE</span>';
+  return '';
+}
+
 function renderAlerts() {
   const list = document.getElementById('alerts-list');
   const badge = document.getElementById('alerts-count-badge');
@@ -568,8 +584,8 @@ function renderAlerts() {
   const alerts = telemetryData ? telemetryData.alerts : [];
 
   if (tabletPill) {
-    if (alerts && alerts.length > 0) {
-      tabletPill.textContent = alerts.length;
+    if (liveAlerts(alerts).length > 0) {
+      tabletPill.textContent = liveAlerts(alerts).length;
       tabletPill.style.display = 'inline-flex';
     } else {
       tabletPill.style.display = 'none';
@@ -598,25 +614,29 @@ function renderAlerts() {
     return;
   }
 
-  badge.textContent = `🚨 ${alerts.length} URGENT ${alerts.length === 1 ? 'ALERT' : 'ALERTS'}`;
-  badge.className = 'panel-count-badge badge-urgent-pulse';
+  const live = liveAlerts(alerts).length;
+  const waiting = alerts.filter(a => !a.acknowledged).length - live;
+  badge.textContent = [live && `${live} ACTIVE`, waiting && `${waiting} TO ACKNOWLEDGE`].filter(Boolean).join(' · ')
+    || `${alerts.length} ACKNOWLEDGED`;
+  badge.className = live ? 'panel-count-badge badge-urgent-pulse' : 'panel-count-badge';
 
   list.innerHTML = alerts.map((alert) => `
-    <div class="pattern-card ${alert.level === 'red' ? 'level-red' : 'level-amber'}">
+    <div class="pattern-card ${alert.level === 'red' ? 'level-red' : 'level-amber'}${alert.active ? '' : ' resolved'}">
       <div class="pattern-card-meta">
         <span class="urgent-indicator-chip ${alert.level}">
-          ${alert.level === 'red' ? '🚨 CRITICAL' : '⚠️ WARNING'} CROSS-SYSTEM PATTERN
+          ${alert.level === 'red' ? 'RED' : 'AMBER'} · ${alert.is_pattern ? 'CROSS-SYSTEM PATTERN' : 'SIGNAL ALERT'}
         </span>
         <span class="urgent-sys-chip">${alert.involved_systems.map(s => (systemCircleLabels[s] || s).toUpperCase()).join(' + ')}</span>
       </div>
+      ${alertStateChip(alert)}
       <div class="pattern-card-title">${alert.pattern_name}</div>
       <div class="pattern-card-summary">${alert.medical_reason}</div>
 
       <button class="btn-control primary alert-protocol-btn" onclick="openProtocolModal('${alert.id}')">
-        <span>🚨</span>
-        <span>Show Clinical Actions & Protocols (${alert.response_crew.length + alert.response_medical.length} Steps)</span>
+        <span>What to do (${alert.response_crew.length + alert.response_medical.length} steps)</span>
         <span>→</span>
       </button>
+      ${alert.acknowledged ? '' : `<button class="btn-control alert-ack-btn" onclick="acknowledgeAlert('${alert.id}')">Acknowledge</button>`}
     </div>
   `).join('');
 }
@@ -637,7 +657,7 @@ function openProtocolModal(alertId) {
 
   if (badge) {
     badge.className = `urgent-indicator-chip ${alert.level}`;
-    badge.textContent = alert.level === 'red' ? '🚨 CRITICAL EMERGENCY PROTOCOL' : '⚠️ CROSS-SYSTEM WARNING PROTOCOL';
+    badge.textContent = `${alert.level.toUpperCase()} · ${alert.is_pattern ? 'CROSS-SYSTEM PATTERN' : 'SIGNAL ALERT'}`;
   }
   if (title) title.textContent = alert.pattern_name;
 
@@ -648,7 +668,7 @@ function openProtocolModal(alertId) {
     const sigTags = alert.signals_fired.map(sig => {
       const bio = telemetryData.biomarkers ? telemetryData.biomarkers[sig] : null;
       const val = bio && bio.reading ? `${bio.reading.value.toFixed(1)} ${bio.bounds.unit}` : sig;
-      return `<span class="protocol-meta-chip signal">BREACH: ${bio ? bio.name : sig} (${val})</span>`;
+      return `<span class="protocol-meta-chip signal">${bio ? bio.name : sig} (${val})</span>`;
     }).join('');
     meta.innerHTML = `<div class="protocol-meta-group">${sysTags}${sigTags}</div>`;
   }
@@ -679,7 +699,7 @@ function openProtocolModal(alertId) {
 
   if (citation) {
     citation.innerHTML = `
-      <strong>Clinical Evidence & Operational Reference:</strong> ${alert.citation} · <em>${alert.is_published ? 'Peer-Reviewed NASA Publication' : 'Investigational Aeromedical Protocol'}</em>
+      <strong>Source:</strong> ${alert.citation} · <em>${alert.is_published ? 'published threshold' : 'proposed threshold (team research doc)'}</em>
     `;
   }
 
@@ -710,7 +730,7 @@ function updateChecklistCounter() {
 function updateUrgentHudBanner() {
   const banner = document.getElementById('urgent-hud-banner');
   if (!banner || !telemetryData) return;
-  const alerts = telemetryData.alerts || [];
+  const alerts = liveAlerts(telemetryData.alerts);
 
   if (alerts.length === 0) {
     banner.style.display = 'none';
@@ -731,7 +751,7 @@ function updateUrgentHudBanner() {
 
   const titleEl = document.getElementById('urgent-hud-title');
   if (titleEl) {
-    titleEl.textContent = `${isRed ? 'CRITICAL' : 'WARNING'} PATTERN: ${topAlert.pattern_name.toUpperCase()}`;
+    titleEl.textContent = `${isRed ? 'RED' : 'AMBER'} ${topAlert.is_pattern ? 'PATTERN' : 'SIGNAL'}: ${topAlert.pattern_name.toUpperCase()}`;
   }
 
   const subEl = document.getElementById('urgent-hud-sub');
