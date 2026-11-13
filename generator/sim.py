@@ -40,7 +40,7 @@ SCENARIOS: dict[str, Scenario] = {
         "mood_score": Effect("add", -0.8, 8),
     }),
     "sleep_debt": Scenario("sleep_debt", effects={
-        "sleep_duration_h": Effect("set", 4.8, 5),
+        "sleep_duration_h": Effect("add", -2.4, 5),  # same drop as plan 6.2 (7.2->4.8 h), from own baseline
         "sleep_efficiency_pct": Effect("add", -8, 5),
         "rmssd_ms": Effect("mul", -0.25, 5),
         "mood_score": Effect("add", -2.0, 5),

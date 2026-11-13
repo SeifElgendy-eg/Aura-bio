@@ -2,7 +2,7 @@ import numpy as np
 
 from contract.schema import Reading, model_signals
 from generator.sim import BASELINE_DAYS, SCENARIOS, make_profile, simulate, to_readings
-from model.dataset import WINDOW, normalise, windows
+from model.dataset import normalise, windows
 
 
 def _run(name, days=40):
@@ -19,8 +19,8 @@ def test_readings_match_contract():
 
 def test_sleep_debt_reaches_target():
     df = _run("sleep_debt")
-    assert df["sleep_duration_h"].iloc[-5:].mean() < 5.5
-    assert abs(df["sleep_duration_h"].iloc[:BASELINE_DAYS].mean() - 7.2) < 1.0
+    base = df["sleep_duration_h"].iloc[:BASELINE_DAYS].mean()
+    assert df["sleep_duration_h"].iloc[-10:].mean() < base - 1.8  # ~2.4 h below own baseline
 
 
 def test_sensor_loss_drops_readings():
@@ -31,6 +31,7 @@ def test_sensor_loss_drops_readings():
 
 
 def test_window_shape():
-    w = windows(normalise(_run("normal")))
-    assert w.shape == (40 - BASELINE_DAYS, WINDOW, len(model_signals()))
-    assert np.isfinite(w).all()
+    for n in (2, 7, 14):
+        w = windows(normalise(_run("normal")), n)
+        assert w.shape == (40 - BASELINE_DAYS, n, len(model_signals()))
+        assert np.isfinite(w).all()

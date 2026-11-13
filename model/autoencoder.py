@@ -1,4 +1,4 @@
-"""Small dense autoencoder over a (WINDOW x n_signals) window. Trained on normal days only;
+"""Small dense autoencoder over a (window x n_signals) block of days. Trained on normal days only;
 high reconstruction error = today does not look like this astronaut's normal (plan 4.3 step 4)."""
 from __future__ import annotations
 
