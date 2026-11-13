@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ log = logging.getLogger("aura.core")
 store: Store
 mqtt_client: mqtt.Client
 sockets: set[WebSocket] = set()
+_status_lock = threading.Lock()  # one status at a time: a stale overlapping one could reopen a closed alert
 
 
 def ingest(payload: bytes | str, topic: str | None = None) -> Reading | None:
@@ -73,6 +75,11 @@ def baselines(crew_id: str, cfg: dict) -> dict[str, tuple[float, float]]:
 
 
 def crew_status(crew_id: str) -> dict | None:
+    with _status_lock:
+        return _crew_status(crew_id)
+
+
+def _crew_status(crew_id: str) -> dict | None:
     latest = store.latest(crew_id)
     if not latest:
         return None
