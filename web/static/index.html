@@ -19,7 +19,7 @@
   <header class="header-bar">
     <div class="brand-block">
       <span class="brand-title">AURA-BIO</span>
-      <span class="mission-capsule">SUBJECT <strong>CM-1 • VANCE</strong></span>
+      <span class="mission-capsule">CREW <strong>CM1</strong></span>
     </div>
 
     <div class="telemetry-metrics">
@@ -32,7 +32,7 @@
         <span class="telemetry-val" id="mission-delay">14m 00s</span>
       </div>
       <div class="telemetry-item">
-        <span class="telemetry-label">GALACTIC DOSE RATE</span>
+        <span class="telemetry-label">DOSE RATE</span>
         <span class="telemetry-val" id="mission-dose">0.48 mGy/d</span>
       </div>
     </div>
@@ -53,11 +53,11 @@
   <!-- Aeromedical Advisory Notice (NFR-10) -->
   <aside class="disclaimer-strip" id="disclaimer-strip">
     <div style="display: flex; align-items: center; gap: 8px;">
-      <span style="font-weight: 700;">⚠️ SPACE CLINICAL PROTOCOL PREVIEW</span>
-      <span class="disclaimer-subtext">— Research telemetry console only. Not an FDA/CE certified medical device.</span>
+      <span style="font-weight: 700;">⚠️ NOT A MEDICAL DEVICE</span>
+      <span class="disclaimer-subtext">— Research concept. All crew data is simulated; thresholds are cited and tagged published or proposed.</span>
     </div>
     <div style="display: flex; align-items: center; gap: 12px;">
-      <span class="disclaimer-badge">ECLSS TELEMETRY BRIDGE</span>
+      <span class="disclaimer-badge">SIMULATED DATA</span>
       <button class="disclaimer-close-btn" onclick="toggleDisclaimer()" aria-label="Minimize regulatory disclaimer">✕</button>
     </div>
   </aside>
@@ -173,13 +173,13 @@
       <!-- Live Biomarker Feed (Bound to Backend Model) -->
       <header class="panel-header" style="margin-top: var(--space-sm);">
         <span class="panel-title">PHYSIOLOGICAL BIOMARKERS</span>
-        <span class="panel-count-badge" id="biomarker-count-badge" style="color: var(--color-signal-primary);">DUAL BOUNDS</span>
+        <span class="panel-count-badge" id="biomarker-count-badge" style="color: var(--color-signal-primary);">—</span>
       </header>
 
       <!-- Subsystem Quick Filter Bar -->
       <div class="biomarker-filter-bar" id="biomarker-filter-bar" role="tablist" aria-label="Filter Biomarkers">
-        <button class="filter-pill active" onclick="setBiomarkerFilter('ALL')" data-filter="ALL">ALL (14)</button>
-        <button class="filter-pill" onclick="setBiomarkerFilter('BREACHED')" data-filter="BREACHED">⚠️ BREACHED</button>
+        <button class="filter-pill active" onclick="setBiomarkerFilter('ALL')" data-filter="ALL">ALL</button>
+        <button class="filter-pill" onclick="setBiomarkerFilter('BREACHED')" data-filter="BREACHED">⚠️ OUT OF BAND</button>
         <button class="filter-pill" onclick="setBiomarkerFilter('neuro')" data-filter="neuro">NEURO</button>
         <button class="filter-pill" onclick="setBiomarkerFilter('cardio')" data-filter="cardio">CARDIO</button>
         <button class="filter-pill" onclick="setBiomarkerFilter('mucosal_immune')" data-filter="mucosal_immune">IMMUNE</button>

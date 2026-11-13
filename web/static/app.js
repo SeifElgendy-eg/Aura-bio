@@ -549,12 +549,11 @@ function updateHotspotStatuses() {
         const status = bio.reading.status;
         if (status === 'red') worst = 'red';
         else if (status === 'amber' && worst !== 'red') worst = 'amber';
+        else if (status === 'stale' && worst === 'green') worst = 'stale';  // FR-8: never green when data is late
       }
     });
 
-    if (!hasAnyReading && worst !== 'red' && worst !== 'amber') {
-      worst = 'stale';
-    }
+    if (!hasAnyReading) worst = 'unknown';  // nothing measured (yet)
 
     const pin = document.getElementById(`pin-${sys.id}`);
     if (pin) {
@@ -658,14 +657,13 @@ function renderAlerts() {
     list.innerHTML = `
       <div class="pattern-card nominal">
         <div class="pattern-card-meta">
-          <span style="color: var(--color-status-green); font-weight: 700; font-size: 14.5px;">● MULTI-SYSTEM HARMONY</span>
-          <span style="color: var(--color-text-dim); font-size: 13.5px;">STEADY STATE</span>
+          <span style="color: var(--color-status-green); font-weight: 700; font-size: 14.5px;">● NO ALERTS</span>
         </div>
-        <div class="pattern-card-title" style="font-size: 17px; margin: 4px 0;">All Systems Nominal</div>
+        <div class="pattern-card-title" style="font-size: 17px; margin: 4px 0;">No cross-system pattern or published red limit</div>
         <details class="tablet-collapsible">
           <summary class="tablet-collapsible-summary">Show Telemetry Baseline Context</summary>
           <div class="collapsible-content">
-            No multi-system signal divergence detected. Observed physiological variables are bounded within personal baseline envelopes across neurocognitive, cardiovascular, mucosal, metabolic, musculoskeletal, and ECLSS subsystems.
+            Single signals can still be amber or red below; patterns need several body systems to change together.
           </div>
         </details>
       </div>
@@ -935,6 +933,25 @@ function setBiomarkerFilter(category) {
   renderTelemetryList();
 }
 
+const valueText = (sig, v) => (sig === 'viral_pcr_positive' ? (v ? 'POS' : 'NEG') : v.toFixed(1));
+
+// simulated mission day of the newest reading, counted from the crew member's first reading
+function missionDay() {
+  const ts = Object.values(signalHistory).flat().map(h => Date.parse(h.ts)).filter(Boolean);
+  return ts.length ? Math.floor((Math.max(...ts) - Math.min(...ts)) / 864e5) + 1 : 0;
+}
+
+function boundsText(b, sig, status) {
+  const lim = [b.amber_low != null && `amber < ${b.amber_low}`, b.amber_high != null && `amber > ${b.amber_high}`,
+    b.red_low != null && `red < ${b.red_low}`, b.red_high != null && `red > ${b.red_high}`].filter(Boolean).join(' · ');
+  const labs = SYSTEMS.find(x => x.id === 'mucosal_immune').biomarkers.includes(sig);
+  const base = b.baseline == null
+    ? `Building baseline: day ${missionDay()} of ${labs ? 28 : 14}`
+    : `Baseline ${b.baseline} ${b.unit}`;
+  const parts = [status === 'stale' ? 'Reading overdue' : null, base, lim || (status === 'unknown' ? 'no rule' : null)];
+  return parts.filter(Boolean).join(' · ');
+}
+
 function renderTelemetryList() {
   const container = document.getElementById('telemetry-list');
   const countBadge = document.getElementById('biomarker-count-badge');
@@ -964,11 +981,10 @@ function renderTelemetryList() {
     targetSignals = ALL_BIOMARKER_ORDER.filter(id => {
       const bio = telemetryData.biomarkers[id];
       if (!bio) return false;
-      if (!bio.reading) return true; // stale
-      return (bio.reading.status === 'red' || bio.reading.status === 'amber');
+      return bio.reading && ['red', 'amber', 'stale'].includes(bio.reading.status);
     });
     if (countBadge) {
-      countBadge.textContent = targetSignals.length > 0 ? `${targetSignals.length} BREACHED` : '0 BREACHED';
+      countBadge.textContent = `${targetSignals.length} OUT OF BAND`;
       countBadge.style.color = targetSignals.length > 0 ? 'var(--color-status-amber)' : 'var(--color-status-green)';
     }
   } else {
@@ -989,8 +1005,7 @@ function renderTelemetryList() {
       container.innerHTML = `
         <div class="filter-nominal-card">
           <div style="font-size: 24px; margin-bottom: 6px;">✔</div>
-          <div style="font-size: 15px; font-weight: 700;">All 14 Biomarkers Within Personal Baseline</div>
-          <div style="font-size: 13.5px; color: var(--color-text-muted); margin-top: 4px; font-weight: 400;">No parameter threshold excursions or sensor dropouts detected.</div>
+          <div style="font-size: 15px; font-weight: 700;">No signal is amber, red or overdue</div>
         </div>
       `;
       return;
@@ -1011,26 +1026,19 @@ function renderTelemetryList() {
         <div class="biomarker-row stale" style="opacity: 0.7;" onclick="openSystemForBiomarker('${sigId}')">
           <div class="biomarker-row-main">
             <div class="biomarker-info-title">${bio.name}</div>
-            <div class="biomarker-info-bounds" style="color: var(--color-status-stale);">SENSOR TELEMETRY OVERDUE</div>
+            <div class="biomarker-info-bounds" style="color: var(--color-status-stale);">No reading yet</div>
           </div>
-          <div class="biomarker-row-sparkline" title="Offline - no telemetry history">
+          <div class="biomarker-row-sparkline" title="No history yet">
             ${sparkline}
           </div>
-          <div class="biomarker-value-badge stale">STALE</div>
+          <div class="biomarker-value-badge stale">NO DATA</div>
         </div>
       `;
     } else {
       const status = rdg.status;
       const isUrgent = (status === 'red' || status === 'amber');
 
-      let boundsDesc = `Target: ${b.baseline} ${b.unit}`;
-      if (b.amber_low !== null && b.amber_high !== null) {
-        boundsDesc += ` · Band: [${b.amber_low} – ${b.amber_high}]`;
-      } else if (b.amber_high !== null) {
-        boundsDesc += ` · Upper: ${b.amber_high}`;
-      } else if (b.amber_low !== null) {
-        boundsDesc += ` · Lower: ${b.amber_low}`;
-      }
+      const boundsDesc = boundsText(b, sigId, status);
 
       const sparkline = generateSparklineSvg(bio.history, status);
 
@@ -1040,6 +1048,7 @@ function renderTelemetryList() {
             <div class="biomarker-title-line">
               ${isUrgent ? `<span class="urgent-pip ${status}">●</span>` : ''}
               <span class="biomarker-info-title">${bio.name}</span>
+              <span class="prov-chip" title="FR-10 data label">${rdg.provenance}</span>
             </div>
             <div class="biomarker-info-bounds">${boundsDesc}</div>
           </div>
@@ -1047,7 +1056,7 @@ function renderTelemetryList() {
             ${sparkline}
           </div>
           <div class="biomarker-value-badge ${status}">
-            ${rdg.value.toFixed(1)} <span class="biomarker-unit">${b.unit}</span>
+            ${valueText(sigId, rdg.value)} <span class="biomarker-unit">${b.unit}</span>
           </div>
         </div>
       `;
