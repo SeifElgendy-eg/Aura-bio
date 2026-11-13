@@ -362,8 +362,8 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | Sleep efficiency | 88.9% | 5.8 | 4.7 | −0.27 | BIDSleep |
 | Cabin CO₂ | 2.21 mmHg | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
-| HRV (RMSSD) | 55 ms (guess) | 17 ms, multiplicative | 10 (guess) | 0.4 (guess) | Bellenger et al. 2022 |
-| Systolic BP | 118 mmHg (guess) | 9 mmHg | 6 (guess) | 0.4 (guess) | Ohasama study |
+| HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (guess) | Bellenger et al. 2022; Nunan et al. 2010 |
+| Systolic BP | 117 mmHg | 9 mmHg | 13.4 (whole population, ages 7–98: wider than a screened crew) | 0.4 (guess) | Ohasama study |
 | Reaction lapses, mood, exercise | guesses | guesses | guesses | 0.4 (guess) | none found yet |
 | Lymphocytes (weekly) | 2,679 /µL | 10.1% | 23.9% | — | Inspiration4; Coskun et al. 2020 |
 | IL-6 (weekly) | 3.7 pg/mL | 30% | 21% | — | Inspiration4; biological-variation studies (25–50%) |
@@ -469,7 +469,8 @@ Licences were not checked for most repos. Confirm each before copying code.
 | Law et al. 2014, *J Occup Environ Med* 56:477 | CO₂ and headache: odds roughly double per +1 mmHg; keep 7-day average below 2.5 mmHg |
 | Barger et al. 2014, *Lancet Neurology* | ISS crews sleep 6.09 h a night on average |
 | Bellenger et al. 2022, *Sensors* 22:6723 | HRV day-to-day variation, 3–13% of log-RMSSD |
-| Kikuya et al. 2008, *Hypertension* (Ohasama study) | Home systolic BP day-to-day spread ~9 mmHg |
+| Nunan et al. 2010, systematic review (21,438 adults) | Short-term RMSSD average ~42 ms, normal range 19–75 ms |
+| Kikuya et al. 2008, *Hypertension* (Ohasama study) | Home systolic BP day-to-day spread ~9 mmHg; level 117.3, between-person SD 13.4 |
 | Zhang et al. 2020, *Science Advances* 6:eaaz1334 | Moon surface dose: 13.2 µGy/h absorbed, 1,369 µSv/day dose equivalent |
 | Zeitlin et al. 2013, *Science* 340:1080; Hassler et al. 2014, *Science* 343 | Mars transit and surface dose |
 | NASA-STD-3001 | Radiation limits: 600 mSv career, 250 mSv per solar event |

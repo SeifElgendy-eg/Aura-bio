@@ -112,7 +112,8 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | Signal / scenario | Value | Source |
 | --- | --- | --- |
 | `rmssd_ms` day-to-day spread | 17 ms (lnRMSSD CV ~8%), simulated in log space | Bellenger et al. 2022, *Sensors* 22:6723 |
-| `bp_systolic_mmhg` day-to-day spread | 9 mmHg | Kikuya et al. 2008, Ohasama study, *Hypertension* |
+| `bp_systolic_mmhg` | day-to-day 9 mmHg; level 117.3, between people 13.4 (ages 7–98, wider than a crew) | Kikuya et al. 2008 and Ohasama reference values |
+| `rmssd_ms` level and between-person spread | level 55 kept as an estimate for nightly RMSSD (daytime ECG ~42); between people 15 ms from the 19–75 ms normal range | Nunan et al. 2010 |
 | Sleep debt: reaction lapses | +14 percentage points at day 14, curve t^0.78, extrapolated past day 14 | Van Dongen et al. 2003, *SLEEP* 26:117, 4 h group (Fig 1A, θ = 0.78) |
 | Sleep debt: mood | −1.7 at day 14, curve t^0.24 (sleepiness used as mood proxy) | Van Dongen et al. 2003, SSS ~1 point of 7, θ = 0.24 |
 | CO2 creep size | +1.2 mmHg above cabin's own level | Plan 6.2; symptom link: Law et al. 2014, *J Occup Environ Med* 56:477 |
