@@ -1,0 +1,14 @@
+# Shared contract: the signals the model/generator use (plan section 4.1/4.2).
+# Names include the unit. `sim_mean`/`sim_sd` drive the generator only.
+# sim_sd = day-to-day natural variation; person_sd = spread of baselines between astronauts.
+# `model: true` signals form the autoencoder input vector, IN THIS ORDER.
+signals:
+  - {name: resting_hr_bpm,         system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 62,   sim_sd: 2.0,  person_sd: 5,    model: true}
+  - {name: rmssd_ms,               system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 55,   sim_sd: 6.0,  person_sd: 10,   model: true}
+  - {name: bp_systolic_mmhg,       system: cardiovascular, group: vitals,    source: generator, sim_mean: 118,  sim_sd: 4.0,  person_sd: 6,    model: true}
+  - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 7.2,  sim_sd: 0.5,  person_sd: 0.3,  model: true}
+  - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 89,   sim_sd: 3.0,  person_sd: 2,    model: true}
+  - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 8,    sim_sd: 2.5,  person_sd: 2,    model: true}
+  - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 0.6,  person_sd: 0.5,  model: true}
+  - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.0,  sim_sd: 0.08, person_sd: 0,    model: true}
+  - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    model: true}
