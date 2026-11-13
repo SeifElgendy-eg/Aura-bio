@@ -232,3 +232,12 @@ def test_api_mission_trend_checkin_and_model_down(client):
     s = client.get("/crew/cm1/status").json()
     assert s["signals"]["reaction_lapses_pct"]["value"] == 50 and s["signals"]["mood_score"]["value"] == 6
     assert client.post("/checkin", json={"crew_id": "cm1", "ts": T0.isoformat(), "mood_answers": [12]}).status_code == 422
+
+
+def test_labs_wait_for_their_longer_baseline(client):
+    for d in range(29):
+        post_day(client, d, resting_hr_bpm=60 + d % 2, **({"nk_activity_pct": 100 + d % 3} if d % 7 == 0 else {}))
+        s = client.get("/crew/cm1/status").json()["signals"]
+        if d == 14:
+            assert s["resting_hr_bpm"]["baseline_mean"] is not None and s["nk_activity_pct"]["baseline_mean"] is None
+    assert s["nk_activity_pct"]["baseline_mean"] == 100.75  # 100, 101, 102, 100 on days 0, 7, 14, 21

@@ -9,6 +9,8 @@
 #   resting_hr_bpm red (+20 bpm "with symptoms"), bp_systolic_mmhg amber ("persistent deviation"),
 #   il6_pg_ml ("persistent elevation"), viral PCR red (rising load with symptoms).
 baseline_days: 14            # same as generator.sim.BASELINE_DAYS; the model is trained on that baseline
+lab_baseline_days: 28        # signals sampled less than daily (interval_days > 1). Team choice 2026-11-13: 14 days gave
+                             # weekly labs 2 samples; the immune-risk score's 95th percentile on normal crew fell 93 -> 43
 stale_after_intervals: 1.5   # proposed: stale when the last reading is older than this many expected intervals
                              # (interval_days in signals.yaml, default 1 day)
 thresholds:

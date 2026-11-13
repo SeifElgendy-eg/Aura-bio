@@ -48,19 +48,26 @@ def mission() -> dict:
     return {"name": name, "preset": load_presets()[name], "limits": load_limits()}
 
 
-def anomaly(crew_id: str, latest: dict, baselines: dict, now: datetime) -> dict:
+def anomaly(crew_id: str, latest: dict, base: dict, now: datetime) -> dict:
     """FR-14: model score over up to 14 days of z-scores; optional, never blocks the rule alerts."""
-    if not baselines:
+    if not base:
         return {"available": False, "reason": "baseline not ready"}
     first = datetime.fromisoformat(store.span(crew_id)[0])
     n = min(14, (now - first).days + 1)
     snaps = [latest] + [store.latest(crew_id, (now - timedelta(days=k)).isoformat()) for k in range(1, n)]
-    window = domain.model_window(snaps, baselines, model_signals())
+    window = domain.model_window(snaps, base, model_signals())
     return model_client.score(crew_id, window)
 
 
 def latest_ts(latest: dict) -> str:
     return max(r["ts"] for r in latest.values())
+
+
+def baselines(crew_id: str, cfg: dict) -> dict[str, tuple[float, float]]:
+    """Daily signals over baseline_days; weekly labs over lab_baseline_days, so they get enough samples."""
+    labs = {s["name"] for s in load_signals() if s.get("interval_days", 1) > 1}
+    daily = {k: v for k, v in store.baselines(crew_id, cfg["baseline_days"]).items() if k not in labs}
+    return daily | {k: v for k, v in store.baselines(crew_id, cfg["lab_baseline_days"]).items() if k in labs}
 
 
 def crew_status(crew_id: str) -> dict | None:
@@ -71,9 +78,9 @@ def crew_status(crew_id: str) -> dict | None:
     now = datetime.fromisoformat(latest_ts(latest))
     history = [store.latest(crew_id, (now - timedelta(days=k)).isoformat())
                for k in range(1, domain.history_days(cfg) + 1)]
-    baselines = store.baselines(crew_id, cfg["baseline_days"])
-    return domain.status(crew_id, latest, baselines, cfg, load_signals(), history, mission(),
-                         store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, baselines, now))
+    base = baselines(crew_id, cfg)
+    return domain.status(crew_id, latest, base, cfg, load_signals(), history, mission(),
+                         store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, base, now))
 
 
 async def broadcast(crew_id: str) -> None:
@@ -162,7 +169,7 @@ def trend(crew_id: str, signal: str, days: int = 30):
     if last is None:
         raise HTTPException(404, f"no readings for {crew_id}")
     since = (datetime.fromisoformat(last) - timedelta(days=days)).isoformat()
-    base = store.baselines(crew_id, cfg["baseline_days"]).get(signal)
+    base = baselines(crew_id, cfg).get(signal)
     return {"crew_id": crew_id, "signal": signal, "points": store.series(crew_id, signal, since),
             "baseline_mean": base and base[0], "baseline_sd": base and base[1],
             "rule": cfg["thresholds"].get(signal)}
