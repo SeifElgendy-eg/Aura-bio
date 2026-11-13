@@ -19,8 +19,11 @@ Flutter app are other workstreams and may land here later as `firmware/`, `app/`
   `app.py` (MQTT ingest of `aura/+/+`; REST `/health`, `/crew`, `/crew/<id>/status`, `/crew/<id>/signal/<name>?days=` trend,
   `GET/PUT /mission` preset, `POST /checkin` (raw `reaction_times_ms`, `mood_answers` or signal `values`), `DELETE /crew/<id>`
   demo reset, `/crew/overview` (FR-17), `POST /alerts/<id>/ack`, `/ground/reports` (FR-16: released after the preset's one-way
-  delay, wall clock); WebSocket `/ws` pushes the full status). An alert is stored per pattern episode and stays in the status
-  until acknowledged. Weekly labs use `lab_baseline_days` (28), daily signals `baseline_days` (14).
+  delay, wall clock); WebSocket `/ws` pushes the full status). Layers as plan 3.5: app -> domain + store/model_client; the
+  store never calls the domain. Tables follow the plan's data view: mission, crew_member, reading, baseline (saved once its
+  window has passed: daily signals `baseline_days` 14, weekly labs `lab_baseline_days` 28), alert (per episode of a pattern,
+  or of a signal red by a *published* threshold; stays until acknowledged), report; invalid messages go to `reject`.
+  No migrations: after a schema change delete `core.db` (or `docker compose down -v`).
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).

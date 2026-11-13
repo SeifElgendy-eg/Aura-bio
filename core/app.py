@@ -48,8 +48,15 @@ def ingest(payload: bytes | str, topic: str | None = None) -> Reading | None:
 
 
 def mission() -> dict:
-    name = store.setting("preset", "station")
-    return {"name": name, "preset": load_presets()[name], "limits": load_limits()}
+    if (row := store.mission()) is None:
+        set_preset("station")
+        row = store.mission()
+    return {"name": row["preset"], "preset": load_presets()[row["preset"]], "limits": load_limits()}
+
+
+def set_preset(name: str) -> None:
+    p = load_presets()[name]
+    store.set_mission(name, p["one_way_delay_s"], p["dose_mgy_day"])
 
 
 def anomaly(crew_id: str, latest: dict, base: dict, now: datetime) -> dict:
@@ -68,10 +75,17 @@ def latest_ts(latest: dict) -> str:
 
 
 def baselines(crew_id: str, cfg: dict) -> dict[str, tuple[float, float]]:
-    """Daily signals over baseline_days; weekly labs over lab_baseline_days, so they get enough samples."""
+    """Stored baselines; a signal's baseline is computed and saved once its window has passed (plan 3.6:
+    "baseline ready?"). Daily signals use baseline_days, weekly labs lab_baseline_days so they get enough samples."""
+    stored = store.baselines(crew_id)
     labs = {s["name"] for s in load_signals() if s.get("interval_days", 1) > 1}
-    daily = {k: v for k, v in store.baselines(crew_id, cfg["baseline_days"]).items() if k not in labs}
-    return daily | {k: v for k, v in store.baselines(crew_id, cfg["lab_baseline_days"]).items() if k in labs}
+    for days, wanted in ((cfg["baseline_days"], lambda n: n not in labs), (cfg["lab_baseline_days"], labs.__contains__)):
+        window = store.baseline_window(crew_id, days)
+        new = {n: b for n, v in window.items() if wanted(n) and n not in stored and (b := domain.baseline(v))}
+        if new:
+            store.save_baselines(crew_id, new, days)
+            stored |= new
+    return stored
 
 
 def crew_status(crew_id: str) -> dict | None:
@@ -92,15 +106,18 @@ def _crew_status(crew_id: str) -> dict | None:
                       store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, base, now))
     for alert_id, a in store.sync_alerts(crew_id, s["alerts"], s["ts"]):  # FR-16: each new alert goes to the ground
         store.queue_report(crew_id, alert_id, {
-            "crew_id": crew_id, "ts": s["ts"], "alert": a["name"], "level": a["level"], "fired": a["fired"],
+            "crew_id": crew_id, "ts": s["ts"], "alert": a["name"], "level": a["level"], "signals_fired": a["fired"],
             "systems": s["systems"], "mission": m["name"], "disclaimer": domain.DISCLAIMER},
             time.time(), m["preset"]["one_way_delay_s"])
     patterns = {p["id"]: p for p in cfg["patterns"]}
-    s["alerts"] = [patterns[r["pattern_id"]] | {
-        "alert_id": r["id"], "level": r["level"], "fired": json.loads(r["fired"]), "started_ts": r["started_ts"],
+    signal_alert = {a["signal"]: a for a in s["alerts"] if a["id"] is None}
+    s["alerts"] = [(patterns.get(r["pattern_id"]) or signal_alert.get(r["signal"]) or {
+        "id": None, "signal": r["signal"], "name": f"{r['signal']} red", "rule": cfg["thresholds"].get(r["signal"]),
+        "response": domain.with_response({"band": "red"}, r["signal"], cfg).get("response")}) | {
+        "alert_id": r["id"], "level": r["level"], "fired": json.loads(r["signals_fired"]), "started_ts": r["ts"],
         "last_ts": r["last_ts"], "active": bool(r["active"]), "acknowledged_at": r["acknowledged_at"],
         "action": m["preset"]["alert_wording"]}  # FR-13: the same alert reads differently far from Earth
-        for r in store.open_alerts(crew_id) if r["pattern_id"] in patterns]
+        for r in store.open_alerts(crew_id) if r["pattern_id"] is None or r["pattern_id"] in patterns]
     return s
 
 
@@ -236,7 +253,7 @@ async def set_mission(m: MissionChange):
     """FR-13: switch preset (demo mission panel); every crew member's status is pushed again."""
     if m.preset not in load_presets():
         raise HTTPException(422, f"unknown preset {m.preset}; choose from {list(load_presets())}")
-    store.set_setting("preset", m.preset)
+    set_preset(m.preset)
     for crew_id in store.crews():
         await broadcast(crew_id)
     return get_mission()

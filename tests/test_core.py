@@ -73,6 +73,19 @@ def test_every_pattern_boundary(p):  # NFR-5, NFR-13
         assert fired(yesterday={s: {"band": "green"} for s in p["signals"]}) == []
 
 
+def test_only_published_reds_become_alerts():
+    from core.domain import signal_alerts
+    cfg = load_thresholds()
+
+    def alerts(name, value, base):
+        return [a["signal"] for a in signal_alerts({name: {"band": band(cfg["thresholds"][name], value, base),
+                                                           "value": value, "baseline_mean": base}}, cfg)]
+    assert alerts("lymphocytes_per_ul", 900, 1300) == ["lymphocytes_per_ul"]  # < 1000: published
+    assert alerts("lymphocytes_per_ul", 1500, 2600) == []                     # -42%: proposed rule only
+    assert alerts("cabin_co2_mmhg", 3.1, None) == ["cabin_co2_mmhg"]
+    assert alerts("rmssd_ms", 30, 60) == []                                    # -50%, proposed
+
+
 def test_broken_pattern_does_not_stop_others():  # NFR-2
     ok = {"id": "ok", "signals": ["a"]}
     assert [a["id"] for a in match_patterns({"a": {"band": "red"}}, [{"id": "bad", "signals": ["nope"]}, ok])] == ["ok"]
@@ -96,7 +109,7 @@ def replay(scenario, seed):
                                      key=lambda m: m["ts"]):
         for m in msgs:
             core_app.store.add(Reading(**m))
-        raised += [a["id"] for a in core_app.crew_status("cm1")["alerts"] if a["id"] not in raised]
+        raised += [a["id"] for a in core_app.crew_status("cm1")["alerts"] if a["id"] and a["id"] not in raised]
     return raised
 
 
@@ -248,10 +261,10 @@ def test_alerts_persist_until_acknowledged_and_reach_the_ground_late(client, mon
     t0 = core_app.time.time()
     for d in range(14):
         post_day(client, d, resting_hr_bpm=60 + d % 2, exercise_completion_pct=98)
-    post_day(client, 14, resting_hr_bpm=75, exercise_completion_pct=70)  # cardio_deconditioning
-    post_day(client, 15, resting_hr_bpm=75, exercise_completion_pct=70)  # same episode: no second alert
+    post_day(client, 14, resting_hr_bpm=75, exercise_completion_pct=80)  # cardio_deconditioning, both amber
+    post_day(client, 15, resting_hr_bpm=75, exercise_completion_pct=80)  # same episode: no second alert
     [a] = client.get("/crew/cm1/status").json()["alerts"]
-    assert a["id"] == "cardio_deconditioning" and a["active"] and a["level"] == "red"
+    assert a["id"] == "cardio_deconditioning" and a["active"] and a["level"] == "amber"
     assert a["started_ts"].startswith("2026-11-28") and a["action"].startswith("Follow onboard protocol")
     post_day(client, 16, resting_hr_bpm=60, exercise_completion_pct=98)  # pattern stops: stays until acknowledged
     [a] = client.get("/crew/cm1/status").json()["alerts"]
@@ -275,7 +288,7 @@ def test_overlapping_status_cannot_reopen_a_closed_alert(client, monkeypatch):
     from core import model_client
     for d in range(14):
         post_day(client, d, resting_hr_bpm=60 + d % 2, exercise_completion_pct=98)
-    post_day(client, 14, resting_hr_bpm=75, exercise_completion_pct=70)  # cardio_deconditioning opens
+    post_day(client, 14, resting_hr_bpm=75, exercise_completion_pct=80)  # cardio_deconditioning opens, both amber
     stuck, release, calls = threading.Event(), threading.Event(), []
 
     def slow_model(*_):  # the first status call hangs in the model, the next ones don't
@@ -299,3 +312,19 @@ def test_overlapping_status_cannot_reopen_a_closed_alert(client, monkeypatch):
     old.join(5)
     new.join(5)
     assert core_app.store.count("alert") == 1 and core_app.store.count("report") == 1
+
+
+def test_red_signal_alert_and_plan_tables(client):  # plan 3.5 data decomposition
+    for d in range(14):
+        post_day(client, d, cabin_co2_mmhg=2.0 + d % 2 / 10)
+    s = client.get("/crew/cm1/status").json()
+    assert s["alerts"] == [] and core_app.store.baselines("cm1") == {}  # window not over yet
+    post_day(client, 14, cabin_co2_mmhg=3.5)  # red: single-signal alert; amber would not be one
+    assert core_app.store.baselines("cm1")["cabin_co2_mmhg"][0] == pytest.approx(2.05)  # days 0-13
+    [a] = client.get("/crew/cm1/status").json()["alerts"]
+    assert a["id"] is None and a["signal"] == "cabin_co2_mmhg" and a["response"]["system"].startswith("Investigate")
+    post_day(client, 15, cabin_co2_mmhg=2.8)  # amber: episode ends, alert waits for acknowledgement
+    [a] = client.get("/crew/cm1/status").json()["alerts"]
+    assert not a["active"] and a["fired"]["cabin_co2_mmhg"]["value"] == 3.5
+    assert core_app.store.baselines("cm1")["cabin_co2_mmhg"][0] == pytest.approx(2.05)  # frozen after the window
+    assert core_app.store.mission()["preset"] == "station" and core_app.store.crews() == ["cm1"]

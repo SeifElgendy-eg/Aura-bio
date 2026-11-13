@@ -1,4 +1,6 @@
-"""Data layer: SQLite time series. One connection shared by the MQTT thread and the API, behind a lock."""
+"""Data layer: SQLite (plan 3.5 data decomposition). One connection shared by the MQTT thread and the API, behind a
+lock. Threshold and Pattern live in contract/thresholds.yaml, not here. Invalid messages go to `reject` and are
+dropped (plan 3.6 pipeline), so Reading holds only valid readings."""
 from __future__ import annotations
 
 import json
@@ -7,7 +9,6 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from contract.schema import Reading
-from core.domain import baseline
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS reading (
@@ -17,10 +18,16 @@ CREATE TABLE IF NOT EXISTS reading (
 CREATE TABLE IF NOT EXISTS reject (
   id INTEGER PRIMARY KEY, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   topic TEXT, payload TEXT, error TEXT);
-CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mission (
+  id INTEGER PRIMARY KEY, preset TEXT NOT NULL, comms_delay_s REAL NOT NULL, dose_rate_mgy_day REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS crew_member (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, mission_id INTEGER NOT NULL REFERENCES mission(id));
+CREATE TABLE IF NOT EXISTS baseline (
+  crew_id TEXT NOT NULL, signal TEXT NOT NULL, mean REAL NOT NULL, sd REAL NOT NULL,
+  window_days INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (crew_id, signal));
 CREATE TABLE IF NOT EXISTS alert (
-  id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, pattern_id TEXT NOT NULL, level TEXT NOT NULL,
-  fired TEXT NOT NULL, started_ts TEXT NOT NULL, last_ts TEXT NOT NULL,
+  id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, pattern_id TEXT, signal TEXT, level TEXT NOT NULL,
+  signals_fired TEXT NOT NULL, ts TEXT NOT NULL, last_ts TEXT NOT NULL,
   active INTEGER NOT NULL, acknowledged_at TEXT);
 CREATE TABLE IF NOT EXISTS report (
   id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, alert_id INTEGER, body TEXT NOT NULL,
@@ -40,6 +47,8 @@ class Store:
             return self.db.execute(sql, args).fetchall()
 
     def add(self, r: Reading) -> None:
+        # first reading of a new crew member registers them on the current mission
+        self.q("INSERT OR IGNORE INTO crew_member VALUES (?, ?, 1)", r.crew_id, r.crew_id)
         # ts stored as UTC ISO text so it sorts as text. REPLACE: QoS 1 may deliver a message twice.
         self.q("INSERT OR REPLACE INTO reading VALUES (?,?,?,?,?,?)", r.crew_id, r.signal,
                r.ts.astimezone(timezone.utc).isoformat(), r.value, r.source, r.provenance)
@@ -51,28 +60,36 @@ class Store:
         return self.q(f"SELECT COUNT(*) FROM {table}")[0][0]
 
     def crews(self) -> list[str]:
-        return [r[0] for r in self.q("SELECT DISTINCT crew_id FROM reading ORDER BY 1")]
+        return [r[0] for r in self.q("SELECT id FROM crew_member ORDER BY 1")]
 
     def clear(self, crew_id: str) -> None:
-        for table in ("reading", "alert", "report"):
+        for table in ("reading", "alert", "report", "baseline"):
             self.q(f"DELETE FROM {table} WHERE crew_id = ?", crew_id)
+        self.q("DELETE FROM crew_member WHERE id = ?", crew_id)
+
+    def mission(self) -> sqlite3.Row | None:
+        rows = self.q("SELECT * FROM mission WHERE id = 1")
+        return rows[0] if rows else None
+
+    def set_mission(self, preset: str, comms_delay_s: float, dose_rate_mgy_day: float) -> None:
+        self.q("INSERT OR REPLACE INTO mission VALUES (1, ?, ?, ?)", preset, comms_delay_s, dose_rate_mgy_day)
 
     def sync_alerts(self, crew_id: str, live: list[dict], ts: str) -> list[tuple[int, dict]]:
-        """One stored alert per pattern episode: opened when a pattern starts matching, kept up to date while it
-        matches, set inactive when it stops. Returns (id, live alert) for each newly opened alert."""
+        """One stored alert per episode of a pattern (pattern_id) or a red signal (signal): opened when it starts,
+        kept up to date while it lasts, set inactive when it stops. Returns (id, live alert) for each new one."""
         new = []
         with self.lock:
-            open_ = {r[1]: r[0] for r in self.db.execute(
-                "SELECT id, pattern_id FROM alert WHERE crew_id = ? AND active = 1", (crew_id,))}
+            open_ = {(r[1], r[2]): r[0] for r in self.db.execute(
+                "SELECT id, pattern_id, signal FROM alert WHERE crew_id = ? AND active = 1", (crew_id,))}
             for a in live:
-                fired = json.dumps(a["fired"])
-                if a["id"] in open_:
-                    self.db.execute("UPDATE alert SET level = ?, fired = ?, last_ts = ? WHERE id = ?",
-                                    (a["level"], fired, ts, open_.pop(a["id"])))
+                key, fired = (a["id"], a.get("signal")), json.dumps(a["fired"])
+                if key in open_:
+                    self.db.execute("UPDATE alert SET level = ?, signals_fired = ?, last_ts = ? WHERE id = ?",
+                                    (a["level"], fired, ts, open_.pop(key)))
                 else:
                     new.append((self.db.execute(
-                        "INSERT INTO alert (crew_id, pattern_id, level, fired, started_ts, last_ts, active)"
-                        " VALUES (?,?,?,?,?,?,1)", (crew_id, a["id"], a["level"], fired, ts, ts)).lastrowid, a))
+                        "INSERT INTO alert (crew_id, pattern_id, signal, level, signals_fired, ts, last_ts, active)"
+                        " VALUES (?,?,?,?,?,?,?,1)", (crew_id, *key, a["level"], fired, ts, ts)).lastrowid, a))
             for alert_id in open_.values():
                 self.db.execute("UPDATE alert SET active = 0 WHERE id = ?", (alert_id,))
         return new
@@ -119,15 +136,8 @@ class Store:
     def span(self, crew_id: str) -> tuple[str | None, str | None]:
         return tuple(self.q("SELECT MIN(ts), MAX(ts) FROM reading WHERE crew_id = ?", crew_id)[0])
 
-    def setting(self, key: str, default: str) -> str:
-        rows = self.q("SELECT value FROM setting WHERE key = ?", key)
-        return rows[0][0] if rows else default
-
-    def set_setting(self, key: str, value: str) -> None:
-        self.q("INSERT OR REPLACE INTO setting VALUES (?, ?)", key, value)
-
-    def baselines(self, crew_id: str, days: int) -> dict[str, tuple[float, float]]:
-        """Mean and spread per signal over the crew member's first `days` days; {} until those days have passed."""
+    def baseline_window(self, crew_id: str, days: int) -> dict[str, list[float]]:
+        """Readings per signal in the crew member's first `days` days; {} until those days have passed."""
         first, last = self.span(crew_id)
         if first is None:
             return {}
@@ -137,4 +147,13 @@ class Store:
         values: dict[str, list[float]] = {}
         for r in self.q("SELECT signal, value FROM reading WHERE crew_id = ? AND ts < ?", crew_id, cutoff):
             values.setdefault(r["signal"], []).append(r["value"])
-        return {s: b for s, v in values.items() if (b := baseline(v))}
+        return values
+
+    def baselines(self, crew_id: str) -> dict[str, tuple[float, float]]:
+        return {r["signal"]: (r["mean"], r["sd"]) for r in self.q(
+            "SELECT signal, mean, sd FROM baseline WHERE crew_id = ?", crew_id)}
+
+    def save_baselines(self, crew_id: str, stats: dict[str, tuple[float, float]], window_days: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        for signal, (m, sd) in stats.items():
+            self.q("INSERT OR REPLACE INTO baseline VALUES (?,?,?,?,?,?)", crew_id, signal, m, sd, window_days, now)

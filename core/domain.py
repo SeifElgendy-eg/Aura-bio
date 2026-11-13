@@ -42,6 +42,27 @@ def pattern_hit(p: dict, signals: dict[str, dict]) -> bool:
     return all(ORDER.index(signals[s]["band"]) >= ORDER.index(need.get(s, "amber")) for s in p["signals"])
 
 
+def fired(signals: dict[str, dict], names: list[str]) -> dict[str, dict]:
+    return {s: {k: signals[s].get(k) for k in ("band", "value", "ts", "provenance")} for s in names}
+
+
+def published_red(name: str, e: dict, cfg: dict) -> bool:
+    """Red by a threshold the research doc tags published (cumulative dose: NASA-STD-3001 career limit)."""
+    if e["band"] != "red" or name == "cumulative_dose_msv":
+        return e["band"] == "red"
+    rule = cfg["thresholds"].get(name) or []
+    return any(r["basis"] == "published" and band(r, e["value"], e.get("baseline_mean")) == "red"
+               for r in (rule if isinstance(rule, list) else [rule]))
+
+
+def signal_alerts(signals: dict[str, dict], cfg: dict) -> list[dict]:
+    """One alert per signal red by a published threshold. Team choice 2026-11-13: all reds gave a median 11.5
+    stored alerts per normal simulated astronaut in 40 days, published reds 1; other reds stay on the signal."""
+    return [{"id": None, "signal": n, "name": f"{n} red", "level": "red", "fired": fired(signals, [n]),
+             "rule": cfg["thresholds"].get(n), "response": e.get("response")}
+            for n, e in signals.items() if published_red(n, e, cfg)]
+
+
 def match_patterns(signals: dict[str, dict], patterns: list[dict], history: list[dict] = ()) -> list[dict]:
     """One alert per pattern that matches now and on each of its previous `days` - 1 days (history[0] = yesterday);
     red if any signal is red now (FR-5, FR-6)."""
@@ -53,8 +74,7 @@ def match_patterns(signals: dict[str, dict], patterns: list[dict], history: list
                     pattern_hit(p, h) for h in history[:days - 1]):
                 bands = [signals[s]["band"] for s in p["signals"]]
                 alerts.append(p | {"level": "red" if "red" in bands else "amber",
-                                   "fired": {s: {k: signals[s].get(k) for k in ("band", "value", "ts", "provenance")}
-                                             for s in p["signals"]}})
+                                   "fired": fired(signals, p["signals"])})
         except Exception:  # noqa: BLE001
             log.exception("pattern %s failed", p.get("id"))
     return alerts
@@ -158,7 +178,7 @@ def status(crew_id: str, latest: dict[str, dict], baselines: dict[str, tuple[flo
     systems = {}
     for e in out.values():
         systems[e["system"]] = max(systems.get(e["system"], "unknown"), e["band"], key=ORDER.index)
-    alerts = match_patterns(out, cfg.get("patterns", []), past)
+    alerts = match_patterns(out, cfg.get("patterns", []), past) + signal_alerts(out, cfg)
     return {"crew_id": crew_id, "ts": now.isoformat(), "baseline_ready": bool(baselines),
             "mission": mission and {"name": mission["name"], **mission["preset"]},
             "systems": systems, "signals": out, "alerts": alerts,
