@@ -5,11 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AURA-Bio • Aeromedical Telemetry Console</title>
   
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- served locally so the demo runs offline (NFR-7) -->
+  <script src="/static/vendor/chart.umd.min.js"></script>
 
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -208,6 +205,13 @@
               <button class="btn-control scenario-btn" onclick="triggerScenario('sensor_loss')">Sensor Dropout</button>
             </div>
             <button class="btn-control scenario-btn reset" style="width: 100%; justify-content: center; margin-top: 6px;" onclick="triggerScenario('normal')">Replay Normal Days</button>
+            <label class="scenario-speed">Replay speed
+              <select id="scenario-speed">
+                <option value="10">10 s per day (plan)</option>
+                <option value="3" selected>3 s per day</option>
+                <option value="1">1 s per day</option>
+              </select>
+            </label>
           </div>
         </div>
       </details>
@@ -257,14 +261,14 @@
         Psychomotor Vigilance Task (PVT-90)
       </label>
       <div class="pvt-interactive-plate" id="pvt-arena" onclick="handlePvtClick()">
-        <span class="pvt-callout" id="pvt-prompt">Click / Tap to Initialize Trial Block</span>
-        <span id="pvt-sub" style="font-size: 14px; color: var(--color-text-muted); margin-top: 6px;">Measures micro-sleep lapses and reaction latency</span>
+        <span class="pvt-callout" id="pvt-prompt">Tap to start the 90-second test</span>
+        <span id="pvt-sub" style="font-size: 14px; color: var(--color-text-muted); margin-top: 6px;">Tap as soon as the panel lights up. Counts slow responses (lapses).</span>
       </div>
       
       <div style="display: flex; justify-content: space-around; font-size: 15px; background: var(--color-bg-surface); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-subtle); margin-bottom: var(--space-md);">
-        <div>Progress: <strong id="pvt-trials-count" style="color: var(--color-signal-primary); font-size: 16px;">0/5</strong></div>
+        <div>Time left: <strong id="pvt-trials-count" style="color: var(--color-signal-primary); font-size: 16px;">90 s</strong></div>
         <div>Mean Latency: <strong id="pvt-mean-rt" style="font-family: var(--font-family-mono); font-size: 16px;">-- ms</strong></div>
-        <div>Lapses (&gt;500ms): <strong id="pvt-lapses-count" style="color: var(--color-status-amber); font-size: 16px;">0</strong></div>
+        <div>Lapses (&ge;355 ms): <strong id="pvt-lapses-count" style="color: var(--color-status-amber); font-size: 16px;">0</strong></div>
       </div>
 
       <form id="checkin-form" onsubmit="submitCheckin(event)">
@@ -276,14 +280,6 @@
           <input type="range" id="inp-mood" min="1" max="10" step="0.5" value="8.5" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="document.getElementById('mood-val').textContent = this.value + ' / 10'">
         </div>
 
-        <div style="margin-bottom: 14px;">
-          <div style="display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px;">
-            <span style="color: var(--color-text-normal); font-weight: 600;">Daily Fluid Hydration:</span>
-            <strong id="hydration-val" style="color: var(--color-signal-primary); font-size: 16.5px; font-family: var(--font-family-mono);">2400 mL</strong>
-          </div>
-          <input type="range" id="inp-hydration" min="1000" max="4000" step="100" value="2400" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="document.getElementById('hydration-val').textContent = this.value + ' mL'">
-        </div>
-
         <div style="margin-bottom: 20px;">
           <div style="display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px;">
             <span style="color: var(--color-text-normal); font-weight: 600;">Exercise Countermeasures:</span>
@@ -292,7 +288,7 @@
           <input type="range" id="inp-exercise" min="0" max="150" step="15" value="60" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="document.getElementById('exercise-val').textContent = this.value + ' mins'">
         </div>
 
-        <button type="submit" class="btn-control primary" style="width: 100%; justify-content: center; min-height: 52px; font-size: 16px; font-weight: 700;">Transmit Check-in Telemetry</button>
+        <button type="submit" class="btn-control primary" style="width: 100%; justify-content: center; min-height: 52px; font-size: 16px; font-weight: 700;">Send check-in</button>
       </form>
     </div>
   </div>

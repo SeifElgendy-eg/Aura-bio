@@ -1,3 +1,12 @@
+/* bundled locally so the demo runs offline (NFR-7); SIL Open Font License */
+@font-face {
+  font-family: 'Share Tech Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/vendor/ShareTechMono.woff2') format('woff2');
+}
+
 /* hallmark: v2.0.0 · genre: atmospheric · theme: deep-space-obsidian · scope: app */
 /* critique: austere aerospace telemetry console; strict token encapsulation; anatomical focus zoom and callouts */
 
@@ -2095,4 +2104,21 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 4px;
   padding: 0 5px;
   margin-left: 6px;
+}
+
+.scenario-speed {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--color-text-dim);
+}
+
+.scenario-speed select {
+  background: var(--color-bg-surface);
+  color: inherit;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 4px;
+  padding: 4px 6px;
 }

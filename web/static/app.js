@@ -1474,6 +1474,10 @@ function updateModalChart(sigId) {
   });
 }
 
+// plan 4.6: 90-second reaction test; lapse = response >= 355 ms (PVT-B, Basner 2011), same as the core's checkin.lapse_ms
+const PVT_BLOCK_MS = 90000;
+const PVT_LAPSE_MS = 355;
+
 function handlePvtClick() {
   const arena = document.getElementById('pvt-arena');
   const prompt = document.getElementById('pvt-prompt');
@@ -1483,8 +1487,9 @@ function handlePvtClick() {
     pvtState.isRunning = true;
     pvtState.trials = [];
     pvtState.lapses = 0;
-    prompt.textContent = 'Awaiting visual stimulus...';
-    sub.textContent = 'Trial 1 of 5';
+    pvtState.blockEnd = Date.now() + PVT_BLOCK_MS;
+    prompt.textContent = 'Wait for the light...';
+    sub.textContent = 'Trial 1';
     scheduleNextPvtStimulus();
   } else if (pvtState.isWaiting && !pvtState.isStimulusActive) {
     prompt.textContent = 'Premature response! Wait for signal';
@@ -1493,23 +1498,24 @@ function handlePvtClick() {
   } else if (pvtState.isStimulusActive) {
     const elapsed = Date.now() - pvtState.startTime;
     pvtState.trials.push(elapsed);
-    if (elapsed > 500) pvtState.lapses++;
+    if (elapsed >= PVT_LAPSE_MS) pvtState.lapses++;
 
     pvtState.isStimulusActive = false;
     arena.classList.remove('active-stimulus');
 
     const meanRt = Math.round(pvtState.trials.reduce((a, b) => a + b, 0) / pvtState.trials.length);
-    document.getElementById('pvt-trials-count').textContent = `${pvtState.trials.length}/5`;
+    const left = Math.max(0, Math.ceil((pvtState.blockEnd - Date.now()) / 1000));
+    document.getElementById('pvt-trials-count').textContent = `${left} s`;
     document.getElementById('pvt-mean-rt').textContent = `${meanRt} ms`;
     document.getElementById('pvt-lapses-count').textContent = pvtState.lapses;
 
-    if (pvtState.trials.length >= 5) {
+    if (left === 0) {
       pvtState.isRunning = false;
-      prompt.textContent = 'Block Complete. Tap to Retest';
-      sub.textContent = `Completed 5 trials · Mean: ${meanRt}ms · Lapses: ${pvtState.lapses}`;
+      prompt.textContent = 'Test complete. Tap to retake';
+      sub.textContent = `${pvtState.trials.length} trials · mean ${meanRt} ms · ${pvtState.lapses} lapses`;
     } else {
-      prompt.textContent = 'Awaiting visual stimulus...';
-      sub.textContent = `Trial ${pvtState.trials.length + 1} of 5`;
+      prompt.textContent = 'Wait for the light...';
+      sub.textContent = `Trial ${pvtState.trials.length + 1}`;
       scheduleNextPvtStimulus();
     }
   }
@@ -1518,14 +1524,14 @@ function handlePvtClick() {
 function scheduleNextPvtStimulus() {
   pvtState.isWaiting = true;
   pvtState.isStimulusActive = false;
-  const delayMs = 1500 + Math.random() * 3000;
+  const delayMs = 1000 + Math.random() * 3000;  // 1-4 s between stimuli, as in PVT-B
 
   pvtState.timer = setTimeout(() => {
     pvtState.isStimulusActive = true;
     pvtState.startTime = Date.now();
     const arena = document.getElementById('pvt-arena');
     arena.classList.add('active-stimulus');
-    document.getElementById('pvt-prompt').textContent = 'ENGAGE RESPONSE';
+    document.getElementById('pvt-prompt').textContent = 'TAP NOW';
   }, delayMs);
 }
 
@@ -1597,7 +1603,8 @@ async function triggerScenario(id) {
   playAckCue();
   try {
     for (const k in signalHistory) delete signalHistory[k];  // the core wipes the crew member's readings too
-    await fetch(`/scenario/${id}`, { method: 'POST' });
+    const speed = (document.getElementById('scenario-speed') || {}).value || 10;
+    await fetch(`/scenario/${id}?speed=${speed}`, { method: 'POST' });
   } catch (err) {
     console.error('Failed to trigger scenario', err);
   }
