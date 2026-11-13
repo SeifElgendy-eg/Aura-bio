@@ -114,6 +114,9 @@ def test_demo_scenarios_raise_their_pattern(scenario, expected):  # NFR-5, plan 
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("AURA_DB", str(tmp_path / "t.db"))
     monkeypatch.setenv("AURA_MQTT_PORT", "1")  # nothing listens there; the service must start anyway
+    from core import model_client
+    monkeypatch.setattr(model_client, "URL", "http://127.0.0.1:1")  # model down, whatever runs on :8001
+    monkeypatch.setattr(model_client, "_down_until", 0.0)
     with TestClient(core_app.app) as c:
         yield c
 
