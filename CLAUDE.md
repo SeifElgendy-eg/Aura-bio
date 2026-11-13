@@ -18,8 +18,9 @@ Flutter app are other workstreams and may land here later as `firmware/`, `app/`
   immune-risk score, check-in scoring, model window), `store.py` (SQLite), `model_client.py` (calls `/score`; down = `anomaly.available: false`),
   `app.py` (MQTT ingest of `aura/+/+`; REST `/health`, `/crew`, `/crew/<id>/status`, `/crew/<id>/signal/<name>?days=` trend,
   `GET/PUT /mission` preset, `POST /checkin` (raw `reaction_times_ms`, `mood_answers` or signal `values`), `DELETE /crew/<id>`
-  demo reset; WebSocket `/ws` pushes the full status). Pattern alerts are recomputed per status, not stored. Not built: ground
-  report queue (FR-16), crew overview (FR-17), alert history/acknowledgement.
+  demo reset, `/crew/overview` (FR-17), `POST /alerts/<id>/ack`, `/ground/reports` (FR-16: released after the preset's one-way
+  delay, wall clock); WebSocket `/ws` pushes the full status). An alert is stored per pattern episode and stays in the status
+  until acknowledged. Weekly labs use `lab_baseline_days` (28), daily signals `baseline_days` (14).
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).

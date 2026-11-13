@@ -241,3 +241,28 @@ def test_labs_wait_for_their_longer_baseline(client):
         if d == 14:
             assert s["resting_hr_bpm"]["baseline_mean"] is not None and s["nk_activity_pct"]["baseline_mean"] is None
     assert s["nk_activity_pct"]["baseline_mean"] == 100.75  # 100, 101, 102, 100 on days 0, 7, 14, 21
+
+
+def test_alerts_persist_until_acknowledged_and_reach_the_ground_late(client, monkeypatch):  # FR-6, 16, 17
+    client.put("/mission", json={"preset": "mars_transit"})  # 750 s one-way delay
+    t0 = core_app.time.time()
+    for d in range(14):
+        post_day(client, d, resting_hr_bpm=60 + d % 2, exercise_completion_pct=98)
+    post_day(client, 14, resting_hr_bpm=75, exercise_completion_pct=70)  # cardio_deconditioning
+    post_day(client, 15, resting_hr_bpm=75, exercise_completion_pct=70)  # same episode: no second alert
+    [a] = client.get("/crew/cm1/status").json()["alerts"]
+    assert a["id"] == "cardio_deconditioning" and a["active"] and a["level"] == "red"
+    assert a["started_ts"].startswith("2026-11-28") and a["action"].startswith("Follow onboard protocol")
+    post_day(client, 16, resting_hr_bpm=60, exercise_completion_pct=98)  # pattern stops: stays until acknowledged
+    [a] = client.get("/crew/cm1/status").json()["alerts"]
+    assert not a["active"] and a["acknowledged_at"] is None
+    assert client.get("/crew/overview").json()[0]["alerts"][0]["alert_id"] == a["alert_id"]
+    assert client.post(f"/alerts/{a['alert_id']}/ack").status_code == 200
+    assert client.get("/crew/cm1/status").json()["alerts"] == []
+    assert client.post("/alerts/999/ack").status_code == 404
+
+    r = client.get("/ground/reports").json()
+    assert r["released"] == [] and 740 < r["pending"][0]["release_in_s"] <= 750
+    monkeypatch.setattr(core_app.time, "time", lambda: t0 + 751)
+    [rep] = client.get("/ground/reports").json()["released"]
+    assert rep["alert"] == "Cardiovascular deconditioning" and rep["mission"] == "mars_transit" and rep["disclaimer"]

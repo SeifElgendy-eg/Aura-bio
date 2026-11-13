@@ -6,9 +6,11 @@ AURA_MODEL_URL (default http://localhost:8001).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
@@ -78,9 +80,21 @@ def crew_status(crew_id: str) -> dict | None:
     now = datetime.fromisoformat(latest_ts(latest))
     history = [store.latest(crew_id, (now - timedelta(days=k)).isoformat())
                for k in range(1, domain.history_days(cfg) + 1)]
-    base = baselines(crew_id, cfg)
-    return domain.status(crew_id, latest, base, cfg, load_signals(), history, mission(),
-                         store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, base, now))
+    base, m = baselines(crew_id, cfg), mission()
+    s = domain.status(crew_id, latest, base, cfg, load_signals(), history, m,
+                      store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, base, now))
+    for alert_id, a in store.sync_alerts(crew_id, s["alerts"], s["ts"]):  # FR-16: each new alert goes to the ground
+        store.queue_report(crew_id, alert_id, {
+            "crew_id": crew_id, "ts": s["ts"], "alert": a["name"], "level": a["level"], "fired": a["fired"],
+            "systems": s["systems"], "mission": m["name"], "disclaimer": domain.DISCLAIMER},
+            time.time(), m["preset"]["one_way_delay_s"])
+    patterns = {p["id"]: p for p in cfg["patterns"]}
+    s["alerts"] = [patterns[r["pattern_id"]] | {
+        "alert_id": r["id"], "level": r["level"], "fired": json.loads(r["fired"]), "started_ts": r["started_ts"],
+        "last_ts": r["last_ts"], "active": bool(r["active"]), "acknowledged_at": r["acknowledged_at"],
+        "action": m["preset"]["alert_wording"]}  # FR-13: the same alert reads differently far from Earth
+        for r in store.open_alerts(crew_id) if r["pattern_id"] in patterns]
+    return s
 
 
 async def broadcast(crew_id: str) -> None:
@@ -143,6 +157,35 @@ def health():
 @app.get("/crew")
 def crew():
     return store.crews()
+
+
+@app.get("/crew/overview")
+def overview():
+    """FR-17: one card per astronaut for the crew medical officer."""
+    cards = []
+    for crew_id in store.crews():
+        s = crew_status(crew_id)
+        cards.append({"crew_id": crew_id, "ts": s["ts"], "systems": s["systems"],
+                      "worst": max(s["systems"].values(), key=domain.ORDER.index),
+                      "alerts": [{"alert_id": a["alert_id"], "name": a["name"], "level": a["level"],
+                                  "active": a["active"]} for a in s["alerts"]],
+                      "anomaly_score": s["anomaly"].get("score"), "immune_risk": s["immune_risk"]["score"]})
+    return cards
+
+
+@app.post("/alerts/{alert_id}/ack")
+async def ack(alert_id: int):
+    if (crew_id := store.ack(alert_id)) is None:
+        raise HTTPException(404, f"no alert {alert_id}")
+    await broadcast(crew_id)
+    return {"acknowledged": alert_id}
+
+
+@app.get("/ground/reports")
+def ground_reports():
+    """FR-16: reports reach the ground only after the mission's one-way delay (wall-clock seconds)."""
+    released, pending = store.reports(time.time())
+    return {"released": released, "pending": pending}
 
 
 @app.get("/crew/{crew_id}/status")

@@ -159,9 +159,6 @@ def status(crew_id: str, latest: dict[str, dict], baselines: dict[str, tuple[flo
     for e in out.values():
         systems[e["system"]] = max(systems.get(e["system"], "unknown"), e["band"], key=ORDER.index)
     alerts = match_patterns(out, cfg.get("patterns", []), past)
-    if mission:  # FR-13: the same alert reads differently far from Earth
-        for a in alerts:
-            a["action"] = mission["preset"]["alert_wording"]
     return {"crew_id": crew_id, "ts": now.isoformat(), "baseline_ready": bool(baselines),
             "mission": mission and {"name": mission["name"], **mission["preset"]},
             "systems": systems, "signals": out, "alerts": alerts,
