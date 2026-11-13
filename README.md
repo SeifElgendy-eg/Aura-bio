@@ -6,4 +6,5 @@ NASA Space Apps 2026 · astronaut health monitoring. See `CLAUDE.md` for layout 
 uv sync && uv run pytest -q
 uv run python -m model.train
 uv run uvicorn model.service:app --port 8001
+uv run uvicorn core.app:app --port 8000      # backend; or everything: docker compose up --build
 ```

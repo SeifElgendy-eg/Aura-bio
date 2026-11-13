@@ -1,0 +1,11 @@
+# One image for both services; compose.yaml picks the command.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+# generator is needed by model.dataset
+COPY contract contract
+COPY core core
+COPY model model
+COPY generator generator
+ENV PATH=/app/.venv/bin:$PATH

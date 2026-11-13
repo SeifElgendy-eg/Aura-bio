@@ -154,3 +154,6 @@ __pycache__/
 *.pyc
 artifacts/
 .pytest_cache/
+
+# core service
+*.db

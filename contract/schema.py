@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 SIGNALS_YAML = Path(__file__).with_name("signals.yaml")
 PRESETS_YAML = Path(__file__).with_name("presets.yaml")
+THRESHOLDS_YAML = Path(__file__).with_name("thresholds.yaml")
 GROUPS = ("vitals", "cabin", "radiation", "labs")
 
 
@@ -34,6 +35,12 @@ def load_signals() -> list[dict]:
 @lru_cache
 def load_presets() -> dict[str, dict]:
     return yaml.safe_load(PRESETS_YAML.read_text())["presets"]
+
+
+@lru_cache
+def load_thresholds() -> dict:
+    """baseline_days, stale_after_intervals and thresholds by signal name."""
+    return yaml.safe_load(THRESHOLDS_YAML.read_text())
 
 
 def model_signals() -> list[str]:

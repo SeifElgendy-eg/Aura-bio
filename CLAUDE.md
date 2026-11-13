@@ -4,14 +4,19 @@ Astronaut health monitoring for NASA Space Apps 2026 (48-h build, Nov 14–15). 
 member against their own baseline and alerts on cross-system patterns. The full plan is the team's
 "AURA-Bio software plan" PDF; section refs below (e.g. "plan 4.3") point into it.
 
-This repo currently holds the **data + model** workstream. Firmware (Wokwi), core service, and
-Flutter app are other workstreams and may land here later as `firmware/`, `core/`, `app/`.
+This repo holds the **data + model** workstream and the **core service** (backend). Firmware (Wokwi) and the
+Flutter app are other workstreams and may land here later as `firmware/`, `app/`.
 
 ## Layout
 - `contract/` — shared contract, changed only by team agreement. `signals.yaml` (names include
   units; `model: true` + order = autoencoder input vector), `schema.py` (`Reading` message, topics
   `aura/<crew_id>/<group>`).
 - `contract/presets.yaml` — mission presets (dose level, quality factor, delay).
+- `contract/thresholds.yaml` — amber/red rules per signal, cross-system `patterns` (research doc 7, with responses and citations), `baseline_days`,
+  stale rule. Every number is from the research doc or a recorded team choice; the header lists what is not covered yet.
+- `core/` — core service (plan 3.5): `domain.py` (baseline, bands, status; pure, no I/O), `store.py` (SQLite), `app.py` (MQTT ingest of `aura/+/+`,
+  REST `/health`, `/crew`, `/crew/<id>/status`, `POST /checkin`, `DELETE /crew/<id>` for demo resets, WebSocket `/ws`). Pattern alerts are computed
+  per status (not stored yet). Not built yet: model client, immune-risk score, preset wording, ground report queue, alert acknowledgement.
 - `generator/` — `replay.py` swaps in real ISS CO2/dose as `provenance: replayed` (opt-in `--replay`); `sim.py` simulates per-astronaut baselines + AR(1) noise + scenario effects
   (plan 6.2: co2_creep, sleep_debt, deconditioning, sensor_loss, solar_event, immune [90 days]); `publish.py` replays to MQTT.
 - `model/` — `dataset.py` (baseline z-normalisation; windows of 2, 7, 14 days), `autoencoder.py` (dense AE; one model per window length),
@@ -29,7 +34,10 @@ If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run python data/validate.py` — simulator vs the real data (also run by `tests/test_validation.py`)
 - `uv run uvicorn model.service:app --port 8001`
-- `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo
+- `uv run uvicorn core.app:app --port 8000` — core service (env `AURA_DB`, `AURA_MQTT_HOST`, `AURA_MQTT_PORT`); works without a broker
+- `docker compose up --build` — broker :1883, core :8000, model :8001 (needs `artifacts/`)
+- `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo;
+  use `--seed 12` (tests pin it: normal raises nothing, each scenario raises only its own pattern)
 - Data decisions (cleaning rules, cut-offs, calibration values, scenario sizes) are the user's call: show the numbers and ask first.
 
 ## Rules
