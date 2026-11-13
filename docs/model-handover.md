@@ -18,63 +18,60 @@ Read first: `CLAUDE.md`, plan sections 4.3 (model), 5.3 (simulator values and va
 
 ## What exists
 
-| File | Does |
-| --- | --- |
-| `model/dataset.py` | Per-astronaut z-scores against their first 14 days; windows of 2, 7, 14 days |
-| `model/autoencoder.py` | Dense autoencoder (flatten → 32 → 6 → 32), one per window length |
-| `model/train.py` | Trains on normal days only; alarm threshold = 99th percentile of normal error; `evaluate()` runs 200 astronauts per scenario |
-| `model/service.py` | FastAPI `/score`, `/health`. Score > 1 = anomalous. Returns per-signal contributions |
-| `generator/sim.py` | The simulator and the 7 scenarios. Your training data comes from here |
+| File                   | Does                                                                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `model/dataset.py`     | Per-astronaut z-scores against their first 14 days; windows of 2, 7, 14 days                                                 |
+| `model/autoencoder.py` | Dense autoencoder (flatten → 32 → 6 → 32), one per window length                                                             |
+| `model/train.py`       | Trains on normal days only; alarm threshold = 99th percentile of normal error; `evaluate()` runs 200 astronauts per scenario |
+| `model/service.py`     | FastAPI `/score`, `/health`. Score > 1 = anomalous. Returns per-signal contributions                                         |
+| `generator/sim.py`     | The simulator and the 7 scenarios. Your training data comes from here                                                        |
 
 ## Where the model stands (plan 6.3)
 
-| Scenario | Flagged (any window) | Median days to flag |
-| --- | --- | --- |
-| Normal (false alarms) | 1.1% of days, 19% of astronauts over 20 days | — |
-| Sleep debt | 64% | 6 |
-| Deconditioning | 64% | 6 |
-| Solar particle event | 91% | same day |
-| CO₂ creep | 24% (barely above normal) | — |
-| Immune | 16% (= normal) | — |
-| Sensor loss | 14% (= normal) | — |
+| Scenario              | Flagged (any window)                         | Median days to flag |
+| --------------------- | -------------------------------------------- | ------------------- |
+| Normal (false alarms) | 1.1% of days, 19% of astronauts over 20 days | —                   |
+| Sleep debt            | 64%                                          | 6                   |
+| Deconditioning        | 64%                                          | 6                   |
+| Solar particle event  | 91%                                          | same day            |
+| CO₂ creep             | 24% (barely above normal)                    | —                   |
+| Immune                | 16% (= normal)                               | —                   |
+| Sensor loss           | 14% (= normal)                               | —                   |
 
 The 7- and 14-day windows are weak. **First thing to try: robust scaling** (median and a spread
 that ignores outliers, instead of mean and SD over the 14 baseline days).
 
 ## What you must know about the data
 
-1. **All training data is simulated.** Real datasets only set levels, spreads and persistence. No real
-   crew outcome exists. Output is a "research concept, not validated on crew data"; no diagnostic
-   wording.
-2. **Normal days have no links between signals.** Each signal is simulated independently (a bad night
+1. **Normal days have no links between signals.** Each signal is simulated independently (a bad night
    does not raise the next day's heart rate). The autoencoder can only learn each signal's normal
    range, and multi-signal scenarios are easier to spot than in real life. Treat detection rates as
    optimistic.
-3. **Inputs: 10 daily signals**, in the order of `model: true` in `contract/signals.yaml`. Weekly lab
-   values (lymphocytes, IL-6, NK, viral shedding) are *not* inputs; rules and the immune-risk score
+2. **Inputs: 10 daily signals**, in the order of `model: true` in `contract/signals.yaml`. Weekly lab
+   values (lymphocytes, IL-6, NK, viral shedding) are _not_ inputs; rules and the immune-risk score
    handle them.
-4. **Scaling is shared with the core service.** The core service owns the baselines and sends z-scores
+3. **Scaling is shared with the core service.** The core service owns the baselines and sends z-scores
    to `/score`. If you change the scaling (e.g. robust scaling), the core service must change the same
    way, or live scores won't match training.
-5. **Heavy tails and drift.** Reaction lapses have rare very high days; exercise and sleep efficiency
+4. **Heavy tails and drift.** Reaction lapses have rare very high days; exercise and sleep efficiency
    sit just under 100% with a long tail down; cabin CO₂ drifts slowly (persistence 0.87), so a 14-day
    baseline often misses its current level.
-6. **How much to trust each input:**
+5. **How much to trust each input:**
 
-   | Trust | Signals |
-   | --- | --- |
-   | Real data, validated | Resting HR, sleep duration, sleep efficiency, cabin CO₂, dose |
-   | From papers | HRV, systolic BP, lapse level, mood level |
-   | Assumptions | Mood day-to-day spread, all exercise values, persistence 0.4 for HRV, BP, lapses, mood, exercise |
+   | Trust                | Signals                                                                                          |
+   | -------------------- | ------------------------------------------------------------------------------------------------ |
+   | Real data, validated | Resting HR, sleep duration, sleep efficiency, cabin CO₂, dose                                    |
+   | From papers          | HRV, systolic BP, lapse level, mood level                                                        |
+   | Assumptions          | Mood day-to-day spread, all exercise values, persistence 0.4 for HRV, BP, lapses, mood, exercise |
 
-7. **What the model should catch:** sleep debt, deconditioning, solar event. **Not:** CO₂ creep (inside
+6. **What the model should catch:** sleep debt, deconditioning, solar event. **Not:** CO₂ creep (inside
    natural drift; rules catch it), immune (lab values aren't inputs), sensor loss (stale marking).
    Don't tune toward those three; you would be fitting noise.
-8. **Deconditioning sizes are the plan's proposal**, not published (HR +12 bpm over 21 days, exercise
+7. **Deconditioning sizes are the plan's proposal**, not published (HR +12 bpm over 21 days, exercise
    70%, HRV −10%).
-9. **Missing values** are filled with 0 (= baseline); the core service marks them stale separately.
-10. **Replay** (`generator.publish --replay`) feeds real ISS CO₂ and dose for cm1/cm2. Check false alarms
-    on replayed runs too: real data has glitches the simulator doesn't.
+8. **Missing values** are filled with 0 (= baseline); the core service marks them stale separately.
+9. **Replay** (`generator.publish --replay`) feeds real ISS CO₂ and dose for cm1/cm2. Check false alarms
+   on replayed runs too: real data has glitches the simulator doesn't.
 
 ## Rules
 
@@ -84,4 +81,3 @@ that ignores outliers, instead of mean and SD over the 14 baseline days).
 - Thresholds and patterns go in config files, not code (NFR-12).
 - Keep evaluation honest: seeds 1 (train) and 2 (threshold) are used; `evaluate()` uses 1000+. Use a
   separate seed range for tuning, not the evaluation seeds.
-- Every message keeps `provenance: simulated` (or `replayed` for unmodified real data).
