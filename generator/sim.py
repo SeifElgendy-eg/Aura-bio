@@ -74,13 +74,13 @@ SCENARIOS: dict[str, Scenario] = {
     }),
     # Long-duration immune dysregulation, ramping in over 60 days (NK drop measured at flight day 90,
     # Bigley et al. 2019). Sizes: lymphocytes -27%, IL-6 +90% (Inspiration4 average, day after
-    # landing); NK activity -50% (Bigley 2019). Shedding chance per weekly sample 5% -> 20%: derived,
-    # not published (Mehta et al. 2017: 61% of ISS crew shed at some point). Immune signals only.
+    # landing); NK activity -50% (Bigley 2019). Shedding chance per weekly sample 3% -> 23%: healthy
+    # controls 3% (Mehta et al. 2017); 23% of astronaut saliva samples EBV-positive (NASA, shuttle era).
     "immune": Scenario("immune", days=90, effects={
         "lymphocytes_per_ul": Effect("mul", -0.27, 60),
         "il6_pg_ml": Effect("mul", 0.90, 60),
         "nk_activity_pct": Effect("mul", -0.50, 60),
-        "viral_pcr_positive": Effect("set", 0.20, 60),
+        "viral_pcr_positive": Effect("set", 0.23, 60),
     }),
 }
 

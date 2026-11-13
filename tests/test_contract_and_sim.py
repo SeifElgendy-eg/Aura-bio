@@ -89,7 +89,7 @@ def test_immune_scenario_sizes():
         shed_pre.append(v[v.index < sc.onset_day].mean())
         shed_post.append(v[v.index >= sc.onset_day + 60].mean())
     assert abs(np.mean(post) / np.mean(pre) - 0.73) < 0.05          # lymphocytes -27%
-    assert np.mean(shed_pre) < 0.10 and abs(np.mean(shed_post) - 0.20) < 0.06
+    assert np.mean(shed_pre) < 0.08 and abs(np.mean(shed_post) - 0.23) < 0.06
 
 
 def test_solar_event_is_one_day_spike():

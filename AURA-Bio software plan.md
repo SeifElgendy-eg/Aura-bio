@@ -14,12 +14,13 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 4.4 | Dose rates and quality factors verified against the papers; radiation limits added |
 | 4.7 | Data and model tooling added (uv, CPU PyTorch, pandas, scipy) |
 | 5 | All datasets downloaded, processed and committed to the repo |
-| 5.3 (new) | Which simulator values are calibrated from real data or papers, and which are still guesses |
+| 5.3 (new) | Which simulator values are calibrated from real data or papers, and which are documented assumptions |
 | 6.2 | CO₂ creep and sleep debt now relative to each astronaut's or cabin's own baseline; sleep debt follows Van Dongen et al. 2003; expected results updated |
 | 5.4 (new) | Real-data replay of ISS CO₂ and dose |
 | 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
 | 6.2 | New immune dysregulation and solar particle event scenarios |
-| 8.6 | DOIs added; Jones 2022 and Basner 2011 added |
+| 8.6 | DOIs added; Jones 2022, Basner 2011 and the immune/PVT/exercise sources added |
+| 5.3 | Every value marked sourced, estimated or assumption; CO₂ floor 0.76 mmHg; shedding 3%, NK 14%, lapse spreads |
 | 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
@@ -362,19 +363,19 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | Resting heart rate | 60.1 bpm | 3.6 | 5.3 | 0.25 | BIDSleep |
 | Sleep duration | 6.5 h | 1.0 | 0.7 | −0.20 | Level: ISS astronauts (Jones et al. 2022); spreads: BIDSleep |
 | Sleep efficiency | 91.8% (max 100) | 5.8 | 4.7 | −0.27 | Level: Jones et al. 2022; spreads: BIDSleep |
-| Cabin CO₂ | 2.21 mmHg | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
+| Cabin CO₂ | 2.21 mmHg (min 0.76) | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
-| HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (guess) | Bellenger et al. 2022; Nunan et al. 2010 |
-| Systolic BP | 117 mmHg | 9 mmHg | 13.4 (whole population, ages 7–98: wider than a screened crew) | 0.4 (guess) | Ohasama study |
-| Reaction lapses | 7.5% of trials | guess | guess | 0.4 (guess) | Basner et al. 2011 (rested 3-min PVT-B) |
-| Mood (0–10) | 6.2 | guess | guess | 0.4 (guess) | Jones et al. 2022 (in-flight stress ~38/100, converted) |
-| Exercise completion | 98% (guess) | guess | guess | 0.4 (guess) | none; ISS crews log ~600 min/week |
+| HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (assumption) | Bellenger et al. 2022; Nunan et al. 2010 |
+| Systolic BP | 117 mmHg | 9 mmHg | 13.4 (whole population, ages 7–98: wider than a screened crew) | 0.4 (assumption) | Ohasama study |
+| Reaction lapses | 7.5% of trials | 5.4 (derived) | 6.5 (estimated) | 0.4 (assumption) | Basner et al. 2011; PVT reliability ICC 0.59 |
+| Mood (0–10) | 6.2 | 0.6 (assumption) | 1.7 (estimated) | 0.4 (assumption) | Jones et al. 2022 (in-flight stress ~38/100, converted) |
+| Exercise completion | 98% (assumption) | 4 (assumption) | 2 (assumption) | 0.4 (assumption) | none; ISS crews log ~600 min/week, 168 ± 44 min aerobic (ENERGY study) |
 | Lymphocytes (weekly) | 2,679 /µL | 10.1% | 23.9% | — | Inspiration4; Coskun et al. 2020 |
 | IL-6 (weekly) | 3.7 pg/mL | 30% | 21% | — | Inspiration4; biological-variation studies (25–50%) |
-| NK activity (weekly) | 100% of own baseline | 10% (guess) | — | — | Bigley et al. 2019 for flight change |
-| Viral shedding (weekly) | 5% of samples positive (guess) | — | — | — | Mehta et al. 2017 for flight change |
+| NK activity (weekly) | 100% of own baseline | 14% | — | — | TINKL study (123 adults); Bigley et al. 2019 for flight change |
+| Viral shedding (weekly) | 3% of samples positive | — | — | — | Mehta et al. 2017 (healthy controls) |
 
-Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model.
+Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model. Every value is sourced, estimated (derived, rough) or a documented assumption; the full list is in `data/SOURCES.md` ("Final status").
 
 ## 6. Verification
 
@@ -400,7 +401,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
 | Solar particle event | On day 21 every crew member's dose is 51% higher for one day (+0.146 mGy on the ISS, as measured on 10 Sep 2017, Berger et al. 2018); other presets scaled by their own level (derived) | Radiation amber; cumulative dose steps up; dose is a model input, so the anomaly score can react |
-| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 20% of weekly samples (from 5%) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
+| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 23% of weekly samples (from 3%; NASA astronaut saliva data) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
 
 ### 6.3 Model performance
 
@@ -493,5 +494,10 @@ DOIs marked * were taken from memory and should be checked when the paper is ope
 
 | Jones, Basner, Mollicone, Mott, Dinges 2022, *SLEEP* 45:zsac006 | 10.1093/sleep/zsac006 | ISS astronauts: sleep 6.5 h, efficiency 91.8%; stress ~38/100 in flight; stress +7.7 at ≤4 h sleep |
 | Basner, Mollicone, Dinges 2011, *Acta Astronautica* 69:949 | 10.1016/j.actaastro.2011.07.015 | Rested 3-min PVT-B ≈ 7.5% lapses (≥355 ms); tracks the 10-min PVT |
+
+| Mehta et al. 2017; NASA NTRS 20110000846 | 10.1038/s41526-017-0015-y | Shedding: 3% of samples in healthy controls; 23% of astronaut saliva samples EBV-positive |
+| TINKL NK assay study (PubMed 23567516) | — | NK natural killing: 14% inter-test CV in 123 healthy adults |
+| 5-min PVT test-retest study (J Neurosci Methods 2021); Hörmann et al. 2013 | — | PVT lapse repeat-test agreement ICC 0.59 (r 0.42–0.61) |
+| ENERGY study, *npj Microgravity* 2024 | 10.1038/s41526-024-00360-0 | ISS aerobic exercise 168 ± 44 min/week (context for the exercise assumption) |
 
 Still wanted: the Jones 2022 supplement (astronaut lapse levels, Fig S5A).
