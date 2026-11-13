@@ -266,3 +266,36 @@ def test_alerts_persist_until_acknowledged_and_reach_the_ground_late(client, mon
     monkeypatch.setattr(core_app.time, "time", lambda: t0 + 751)
     [rep] = client.get("/ground/reports").json()["released"]
     assert rep["alert"] == "Cardiovascular deconditioning" and rep["mission"] == "mars_transit" and rep["disclaimer"]
+
+
+def test_overlapping_status_cannot_reopen_a_closed_alert(client, monkeypatch):
+    import threading
+
+    from contract.schema import Reading
+    from core import model_client
+    for d in range(14):
+        post_day(client, d, resting_hr_bpm=60 + d % 2, exercise_completion_pct=98)
+    post_day(client, 14, resting_hr_bpm=75, exercise_completion_pct=70)  # cardio_deconditioning opens
+    stuck, release, calls = threading.Event(), threading.Event(), []
+
+    def slow_model(*_):  # the first status call hangs in the model, the next ones don't
+        calls.append(1)
+        if len(calls) == 1:
+            stuck.set()
+            release.wait(5)
+        return {"available": False}
+
+    monkeypatch.setattr(model_client, "score", slow_model)
+    old = threading.Thread(target=core_app.crew_status, args=("cm1",))
+    old.start()
+    assert stuck.wait(5)  # `old` has read the data while the pattern still matched
+    for sig, v in (("resting_hr_bpm", 60), ("exercise_completion_pct", 98)):  # day 15: pattern stops
+        core_app.store.add(Reading(crew_id="cm1", ts=T0 + timedelta(days=15), signal=sig, value=v,
+                                   source="app", provenance="simulated"))
+    new = threading.Thread(target=core_app.crew_status, args=("cm1",))
+    new.start()
+    new.join(0.5)  # without the lock, `new` closes the alert now and `old` then reopens it
+    release.set()
+    old.join(5)
+    new.join(5)
+    assert core_app.store.count("alert") == 1 and core_app.store.count("report") == 1
