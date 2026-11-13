@@ -4,7 +4,6 @@
     uv run python data/fetch.py radlab     # one source
 
 Re-running skips files already present (and hash-checked where the source publishes hashes).
-ISS cabin CO2 (OSDR Environmental Data App) has no documented API: download it by hand, see SOURCES.md.
 """
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ def get(url: str, timeout: int = 60, tries: int = 4) -> bytes:
         except OSError:
             if attempt == tries - 1:
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(5 * 2 ** attempt)  # 5, 10, 20 s: rides out short DNS/network drops
 
 
 def save(dest: Path, url: str, sha256: str | None = None) -> dict:
@@ -56,8 +55,17 @@ def bidsleep() -> list[dict]:
     wanted = [(h, p) for h, p in (l.split(maxsplit=1) for l in sums if l.strip())
               if not p.endswith("motion.csv")]
     out = RAW / "bidsleep"
+
+    def one(hp):  # one failed file must not discard the rest; a re-run picks it up
+        try:
+            return save(out / hp[1], BIDS + hp[1], hp[0])
+        except Exception as e:
+            print(f"  {hp[1]}: skipped ({e})")
+
     with ThreadPoolExecutor(4) as ex:
-        return list(ex.map(lambda hp: save(out / hp[1], BIDS + hp[1], hp[0]), wanted))
+        recs = [r for r in ex.map(one, wanted) if r]
+    print(f"  {len(recs)}/{len(wanted)} files")
+    return recs
 
 
 # --- 2. RadLab: ISS DosTel absorbed dose rate (uGy/hour); aggregate to daily later -----------
