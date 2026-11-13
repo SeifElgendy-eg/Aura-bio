@@ -11,7 +11,8 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 - `contract/` — shared contract, changed only by team agreement. `signals.yaml` (names include
   units; `model: true` + order = autoencoder input vector), `schema.py` (`Reading` message, topics
   `aura/<crew_id>/<group>`).
-- `generator/` — `sim.py` simulates per-astronaut baselines + AR(1) noise + scenario effects
+- `contract/presets.yaml` — mission presets (dose level, quality factor, delay).
+- `generator/` — `replay.py` swaps in real ISS CO2/dose as `provenance: replayed` (opt-in `--replay`); `sim.py` simulates per-astronaut baselines + AR(1) noise + scenario effects
   (plan 6.2: co2_creep, sleep_debt, deconditioning, sensor_loss); `publish.py` replays to MQTT.
 - `model/` — `dataset.py` (baseline z-normalisation; windows of 2, 7, 14 days), `autoencoder.py` (dense AE; one model per window length),
   `train.py` (trains on normal days only, threshold = p99 normal error, saves `artifacts/model_{2,7,14}d.pt`), `service.py` (FastAPI
@@ -26,7 +27,8 @@ If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv run python -m model.train` — trains the 3 models, prints score per scenario day and window
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run uvicorn model.service:app --port 8001`
-- `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883)
+- `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo
+- Data decisions (cleaning rules, cut-offs, calibration values, scenario sizes) are the user's call: show the numbers and ask first.
 
 ## Rules
 - All crew data is simulated and must carry `provenance: simulated`; never present it as real (NFR-11).

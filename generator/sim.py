@@ -76,6 +76,28 @@ def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str,
     return prof
 
 
+def effect_ramp(scenario: Scenario, name: str, n_days: int) -> np.ndarray:
+    """0 before onset, then the effect's ramp (0..1 linear, or a power curve). Zeros if no effect."""
+    eff = scenario.effects.get(name)
+    if not eff:
+        return np.zeros(n_days)
+    t = np.clip(np.arange(n_days) - scenario.onset_day + 1, 0, None) / eff.ramp_days
+    return t ** eff.power if eff.power else np.clip(t, 0, 1)
+
+
+def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str) -> np.ndarray:
+    """Add the scenario's effect for this signal to a daily series (simulated or replayed)."""
+    eff = scenario.effects.get(name)
+    if not eff:
+        return x
+    ramp = effect_ramp(scenario, name, len(x))
+    if eff.mode == "add":
+        return x + ramp * eff.value
+    if eff.mode == "mul":
+        return x * (1 + ramp * eff.value)
+    return x + ramp * (eff.value - mean)  # "set"
+
+
 def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
              scenario: Scenario | None = None) -> pd.DataFrame:
     """Daily values, one row per day, one column per signal (NaN where a sensor dropped out)."""
@@ -91,16 +113,7 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
         # so it scales with each astronaut's or preset's level and never goes negative
         x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
-        eff = scenario.effects.get(name)
-        if eff:
-            t = np.clip(np.arange(n_days) - scenario.onset_day + 1, 0, None) / eff.ramp_days
-            ramp = t ** eff.power if eff.power else np.clip(t, 0, 1)
-            if eff.mode == "add":
-                x = x + ramp * eff.value
-            elif eff.mode == "mul":
-                x = x * (1 + ramp * eff.value)
-            elif eff.mode == "set":
-                x = x + ramp * (eff.value - mean)
+        x = apply_effect(x, mean, scenario, name)
         if name in scenario.drop_signals:
             x[scenario.onset_day:] = np.nan
         cols[name] = x
@@ -108,8 +121,9 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
 
 
 def to_readings(crew_id: str, df: pd.DataFrame, start: str = "2026-11-14T10:00:00+00:00",
-                provenance: str = "simulated") -> list[dict]:
-    """Daily frame -> contract messages (JSON-ready), skipping NaN (dropped sensors)."""
+                provenance: str | pd.DataFrame = "simulated") -> list[dict]:
+    """Daily frame -> contract messages (JSON-ready), skipping NaN (dropped sensors).
+    provenance: one label for everything, or a frame shaped like df with a label per day and signal."""
     by_name = {s["name"]: s for s in load_signals()}
     ts0 = pd.Timestamp(start)
     out = []
@@ -118,5 +132,6 @@ def to_readings(crew_id: str, df: pd.DataFrame, start: str = "2026-11-14T10:00:0
         for name, v in row.items():
             if pd.notna(v):
                 out.append({"crew_id": crew_id, "ts": ts, "signal": name, "value": round(float(v), 3),
-                            "source": by_name[name]["source"], "provenance": provenance})
+                            "source": by_name[name]["source"],
+                            "provenance": provenance if isinstance(provenance, str) else provenance.at[day, name]})
     return out
