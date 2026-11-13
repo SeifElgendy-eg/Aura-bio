@@ -76,7 +76,66 @@ def signal_bands(latest: dict[str, dict], baselines: dict[str, tuple[float, floa
             entry |= {"value": r["value"], "ts": r["ts"], "provenance": r["provenance"], "rule": rule,
                       "baseline_mean": base and base[0], "baseline_sd": base and base[1],
                       "z": (r["value"] - base[0]) / base[1] if base and base[1] else None}
-        out[name] = entry
+        out[name] = with_response(entry, name, cfg)
+    return out
+
+
+def with_response(entry: dict, name: str, cfg: dict) -> dict:
+    """FR-6: what the medical system and the astronaut should do when a signal is amber or red."""
+    r = cfg.get("responses", {}).get(name)
+    if r and entry["band"] in ("amber", "red"):
+        entry["response"] = {"system": r[entry["band"]], "crew": r["crew"]}
+    return entry
+
+
+def cumulative_dose(total_mgy: float, preset: dict, limits: dict, cfg: dict) -> dict:
+    """Derived signal: career effective dose so far vs the career limit (research doc 5)."""
+    c = cfg["cumulative_dose"]
+    # shortcut: the whole history uses the current preset's quality factor; per-reading presets if presets switch mid-run
+    msv = c["prior_career_msv"] + total_mgy * preset["quality_factor"]
+    limit = limits["career_effective_dose_msv"]
+    pct = 100 * msv / limit
+    b = "red" if pct > c["red_pct_of_limit"] else "amber" if pct >= c["amber_pct_of_limit"] else "green"
+    return with_response({"system": "radiation", "band": b, "value": round(msv, 2), "pct_of_limit": round(pct, 2),
+                          "limit_msv": limit, "provenance": "derived"}, "cumulative_dose_msv", cfg)
+
+
+def immune_risk(signals: dict[str, dict], cfg: dict) -> dict:
+    """FR-15 research concept: weighted mean of bad-direction z-scores, 0-100."""
+    ir = cfg["immune_risk"]
+    inputs, num, den = {}, 0.0, 0.0
+    for name, spec in ir["inputs"].items():
+        z = signals.get(name, {}).get("z")
+        if z is None:
+            inputs[name] = None
+            continue
+        bad = max(0.0, z if spec["direction"] == "above" else -z)
+        inputs[name] = round(bad, 2)
+        num, den = num + spec["weight"] * bad, den + spec["weight"]
+    score = None if den == 0 else round(min(100.0, 100 * num / den / ir["full_scale_z"]), 1)
+    return {"score": score, "inputs": inputs, "not_measured": ir["not_measured"],
+            "label": "research concept, not validated on crew data; placeholder weights"}
+
+
+def model_window(snapshots: list[dict[str, dict]], baselines: dict[str, tuple[float, float]],
+                 names: list[str]) -> dict[str, list[float]]:
+    """Daily z-scores for the model service, oldest first (snapshots[0] = today). Missing = baseline (0)."""
+    def z(snap, n):
+        r, b = snap.get(n), baselines.get(n)
+        return 0.0 if not r or not b else (r["value"] - b[0]) / max(b[1], 1e-3)  # same sd floor as model.dataset
+    return {n: [round(z(snap, n), 4) for snap in reversed(snapshots)] for n in names}
+
+
+def score_checkin(reaction_times_ms: list[float] | None, mood_answers: list[float] | None, cfg: dict) -> dict:
+    """FR-12: raw check-in -> signals. Lapse = reaction time at or above the PVT-B threshold (Basner 2011)."""
+    c, out = cfg["checkin"], {}
+    if reaction_times_ms:
+        out["reaction_lapses_pct"] = 100 * sum(t >= c["lapse_ms"] for t in reaction_times_ms) / len(reaction_times_ms)
+    if mood_answers:
+        lo, hi = c["mood_scale"]
+        if not all(lo <= a <= hi for a in mood_answers):
+            raise ValueError(f"mood answers must be within {lo}-{hi}")
+        out["mood_score"] = mean(mood_answers)
     return out
 
 
@@ -86,16 +145,24 @@ def history_days(cfg: dict) -> int:
 
 
 def status(crew_id: str, latest: dict[str, dict], baselines: dict[str, tuple[float, float]],
-           cfg: dict, signals: list[dict], history: list[dict[str, dict]] = ()) -> dict:
+           cfg: dict, signals: list[dict], history: list[dict[str, dict]] = (), mission: dict | None = None,
+           dose_total_mgy: float | None = None, anomaly: dict | None = None) -> dict:
     """latest: newest stored reading per signal. history[k]: the same as of k + 1 days before now.
     'Now' is the newest reading of this crew member, so staleness also works when a scenario is
     replayed faster than real time."""
     now = max(datetime.fromisoformat(r["ts"]) for r in latest.values())
     out = signal_bands(latest, baselines, cfg, signals, now)
+    if mission and dose_total_mgy is not None:
+        out["cumulative_dose_msv"] = cumulative_dose(dose_total_mgy, mission["preset"], mission["limits"], cfg)
     past = [signal_bands(h, baselines, cfg, signals, now - timedelta(days=k + 1)) for k, h in enumerate(history)]
     systems = {}
     for e in out.values():
         systems[e["system"]] = max(systems.get(e["system"], "unknown"), e["band"], key=ORDER.index)
+    alerts = match_patterns(out, cfg.get("patterns", []), past)
+    if mission:  # FR-13: the same alert reads differently far from Earth
+        for a in alerts:
+            a["action"] = mission["preset"]["alert_wording"]
     return {"crew_id": crew_id, "ts": now.isoformat(), "baseline_ready": bool(baselines),
-            "systems": systems, "signals": out,
-            "alerts": match_patterns(out, cfg.get("patterns", []), past), "disclaimer": DISCLAIMER}
+            "mission": mission and {"name": mission["name"], **mission["preset"]},
+            "systems": systems, "signals": out, "alerts": alerts,
+            "immune_risk": immune_risk(out, cfg), "anomaly": anomaly, "disclaimer": DISCLAIMER}

@@ -38,6 +38,11 @@ def load_presets() -> dict[str, dict]:
 
 
 @lru_cache
+def load_limits() -> dict[str, float]:
+    return yaml.safe_load(PRESETS_YAML.read_text())["limits"]
+
+
+@lru_cache
 def load_thresholds() -> dict:
     """baseline_days, stale_after_intervals and thresholds by signal name."""
     return yaml.safe_load(THRESHOLDS_YAML.read_text())

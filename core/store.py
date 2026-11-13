@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS reading (
 CREATE TABLE IF NOT EXISTS reject (
   id INTEGER PRIMARY KEY, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   topic TEXT, payload TEXT, error TEXT);
+CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 
@@ -54,9 +55,27 @@ class Store:
                       " WHERE crew_id = ? AND ts <= ? GROUP BY signal", crew_id, until)
         return {r["signal"]: dict(r) for r in rows}
 
+    def series(self, crew_id: str, signal: str, since: str) -> list[dict]:
+        return [dict(r) for r in self.q("SELECT ts, value, provenance FROM reading WHERE crew_id = ? AND signal = ?"
+                                         " AND ts >= ? ORDER BY ts", crew_id, signal, since)]
+
+    def total(self, crew_id: str, signal: str) -> float:
+        return self.q("SELECT COALESCE(SUM(value), 0) FROM reading WHERE crew_id = ? AND signal = ?",
+                      crew_id, signal)[0][0]
+
+    def span(self, crew_id: str) -> tuple[str | None, str | None]:
+        return tuple(self.q("SELECT MIN(ts), MAX(ts) FROM reading WHERE crew_id = ?", crew_id)[0])
+
+    def setting(self, key: str, default: str) -> str:
+        rows = self.q("SELECT value FROM setting WHERE key = ?", key)
+        return rows[0][0] if rows else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.q("INSERT OR REPLACE INTO setting VALUES (?, ?)", key, value)
+
     def baselines(self, crew_id: str, days: int) -> dict[str, tuple[float, float]]:
         """Mean and spread per signal over the crew member's first `days` days; {} until those days have passed."""
-        first, last = self.q("SELECT MIN(ts), MAX(ts) FROM reading WHERE crew_id = ?", crew_id)[0]
+        first, last = self.span(crew_id)
         if first is None:
             return {}
         cutoff = (datetime.fromisoformat(first) + timedelta(days=days)).isoformat()

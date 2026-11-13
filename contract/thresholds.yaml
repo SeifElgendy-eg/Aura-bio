@@ -7,8 +7,7 @@
 #   basis: published | proposed (NFR-13), as the research doc tags it.
 # Not covered (no number in the doc, or the input does not exist yet):
 #   resting_hr_bpm red (+20 bpm "with symptoms"), bp_systolic_mmhg amber ("persistent deviation"),
-#   il6_pg_ml ("persistent elevation"), viral PCR red (rising load with symptoms), dose_mgy (cumulative dose vs a
-#   mission budget: no budget chosen yet; limits in presets.yaml).
+#   il6_pg_ml ("persistent elevation"), viral PCR red (rising load with symptoms).
 baseline_days: 14            # same as generator.sim.BASELINE_DAYS; the model is trained on that baseline
 stale_after_intervals: 1.5   # proposed: stale when the last reading is older than this many expected intervals
                              # (interval_days in signals.yaml, default 1 day)
@@ -26,6 +25,7 @@ thresholds:
     - {kind: pct, direction: below, amber: 20, red: 40, basis: proposed,  citation: "Research doc 4.1"}
     - {kind: abs, direction: below, red: 1000,          basis: published, citation: "Research doc 4.1; [9] Merck Manual (lymphocytopenia)"}
   nk_activity_pct:         {kind: pct,   direction: below, amber: 20, red: 40, basis: proposed,  citation: "Research doc 4.1; ~50% fall at flight day 90 [1] Bigley et al. 2019"}
+  dose_mgy:                {kind: pct,   direction: above, amber: 30,          basis: proposed,  citation: "Team choice 2026-11-13: daily spike; the 10 Sep 2017 solar event added +51% on the ISS (Berger et al. 2018)"}
   viral_pcr_positive:      {kind: abs,   direction: above, amber: 0.5,         basis: published, citation: "Research doc 4.1; [3, 4, 5] Mehta 2013, 2017, Rooney 2019. An isolated positive is not disease"}
 
 # Cross-system patterns (research doc section 7 and module tables). Fires when EVERY listed signal is amber or red;
@@ -81,3 +81,75 @@ patterns:
     response_crew: Wear and monitor the personal dosimeter, follow radiation-protection instructions and complete scheduled blood sampling.
     basis: proposed
     citation: "Research doc 7, 5; [1] Bigley et al. 2019, [33] NASA-STD-3001"
+
+# Cumulative effective dose = sum of daily dose_mgy x the current preset's quality_factor (presets.yaml), against the
+# career limit there. Shown as the derived signal cumulative_dose_msv (radiation system). Team choice 2026-11-13.
+cumulative_dose:
+  amber_pct_of_limit: 80     # proposed ("approaching the budget", research doc 5)
+  red_pct_of_limit: 100      # published: NASA-STD-3001 career limit [33]
+  prior_career_msv: 0        # ASSUMPTION: no dose before this mission
+
+# Response per signal when amber or red (research doc section 5 = medical system; section 6 = astronaut).
+responses:
+  resting_hr_bpm: &cardio
+    amber: Repeat measurements at a consistent time; review hydration, exercise and recovery.
+    red: Urgent medical evaluation, ECG and cardiovascular assessment.
+    crew: Record resting heart rate and HRV at the same time each day. Report dizziness, palpitations, chest pain, shortness of breath or visual changes immediately.
+  rmssd_ms: *cardio
+  bp_systolic_mmhg:
+    amber: Repeat the blood-pressure series; review cuff technique, hydration and stress.
+    red: Confirm blood pressure; urgent medical evaluation. Chest pain, fainting or severe breathlessness needs immediate emergency assessment.
+    crew: Take scheduled blood-pressure measurements. Report chest pain, fainting or severe breathlessness immediately.
+  sleep_duration_h: &sleep
+    amber: Adjust workload and circadian lighting; review the sleep environment and schedule.
+    red: Reassess fitness for safety-critical tasks; arrange medical and behavioural-health evaluation.
+    crew: Protect an 8-hour sleep opportunity each night and keep a consistent light-dark schedule. Report persistent sleep difficulty.
+  sleep_efficiency_pct: *sleep
+  reaction_lapses_pct: *sleep
+  mood_score:
+    amber: Increase check-ins; review workload and communication.
+    red: Behavioural-health consultation with the flight surgeon; consider task restrictions.
+    crew: Complete the daily check-in. Report mood change or errors you notice in your own work.
+  cabin_co2_mmhg:
+    amber: Check cabin CO₂ sensors and ventilation; repeat symptom review.
+    red: Investigate a cabin environmental malfunction; neurological evaluation if symptoms persist.
+    crew: Report headaches and congestion. Follow cabin ventilation and air-quality procedures.
+  exercise_completion_pct:
+    amber: Review barriers (equipment, schedule, pain); adjust workload.
+    red: Clinical musculoskeletal assessment; revise the exercise prescription.
+    crew: Complete the prescribed resistance and aerobic exercise. Report muscle weakness or bone pain.
+  lymphocytes_per_ul:
+    amber: Repeat blood count with differential within 24-48 h; review sleep, nutrition and workload.
+    red: Full immune assessment, lymphocyte subsets, infection screening, flight-surgeon consultation.
+    crew: &immune_crew Report fever, oral lesions, rashes, shingles-like pain or unusual fatigue. Keep sleep, nutrition and hygiene routines and complete scheduled sampling.
+  nk_activity_pct:
+    amber: Repeat the NK cytotoxicity assay; review stress and exercise recovery.
+    red: Investigate impaired antiviral surveillance; EBV, CMV and VZV PCR.
+    crew: *immune_crew
+  viral_pcr_positive:
+    amber: Repeat the sample; check for symptoms (rash, oral lesions, fever).
+    red: Clinical assessment with viral-load trend. Do not automatically start antimicrobials.
+    crew: *immune_crew
+  dose_mgy: &radiation
+    amber: Calculate cumulative exposure and reassess mission dose projections.
+    red: Radiation-event assessment, dosimetry review, blood count and medical consultation; adjust operations per radiation-protection protocols.
+    crew: Wear and monitor the personal dosimeter, follow radiation-protection instructions and move to shelter when instructed.
+  cumulative_dose_msv: *radiation
+
+# Immune-risk score (FR-15, research doc 7). RESEARCH CONCEPT: equal placeholder weights (team choice 2026-11-13), not
+# derived from data. Each input's deviation from baseline in its bad direction (z, negatives = 0), weighted mean over
+# the inputs that have a z, scaled so full_scale_z = 100.
+immune_risk:
+  full_scale_z: 3            # proposed: a 3-SD average deviation reads as 100
+  inputs:
+    nk_activity_pct:    {direction: below, weight: 1}
+    lymphocytes_per_ul: {direction: below, weight: 1}
+    rmssd_ms:           {direction: below, weight: 1}
+    sleep_duration_h:   {direction: below, weight: 1}
+    dose_mgy:           {direction: above, weight: 1}
+  not_measured: [T-cell function, salivary sIgA, microbiome change]
+
+# Daily check-in scoring (FR-12). The app sends raw reaction times and mood answers; the backend scores them.
+checkin:
+  lapse_ms: 355              # published: PVT-B lapse threshold [21] Basner et al. 2011
+  mood_scale: [0, 10]        # proposed: each mood question answered on 0-10 (10 = best); mood_score = mean

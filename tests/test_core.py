@@ -136,7 +136,7 @@ def test_baseline_then_bands_and_stale(client):
     assert s["signals"]["resting_hr_bpm"]["band"] == "amber"  # 72 vs baseline 60.5
     assert s["signals"]["resting_hr_bpm"]["provenance"] == "simulated"
     assert s["systems"] == {"cardiovascular": "amber", "neurocognitive": "green", "environment": "red",
-                            "bone_muscle": "unknown", "radiation": "unknown", "immune": "unknown"}
+                            "bone_muscle": "unknown", "radiation": "green", "immune": "unknown"}
     # pulse sensor stops: two days later heart rate is stale, never green (FR-8)
     post_day(client, 16, cabin_co2_mmhg=2.0)
     s = client.get("/crew/cm1/status").json()
@@ -154,3 +154,78 @@ def test_bad_messages_are_rejected_without_stopping(client):  # FR-2, NFR-2
     assert core_app.ingest(good, "aura/cm1/cabin") is not None
     core_app.ingest(good, "aura/cm1/cabin")  # QoS 1 duplicate is stored once
     assert client.get("/health").json() == {"status": "ok", "mqtt_connected": False, "readings": 2, "rejects": 5}
+
+
+def test_every_rule_has_a_response():  # FR-6
+    cfg = load_thresholds()
+    for name, rs in cfg["thresholds"].items():
+        r = cfg["responses"][name]
+        assert r["crew"] and all(r[lvl] for rule in (rs if isinstance(rs, list) else [rs])
+                                 for lvl in ("amber", "red") if lvl in rule)
+
+
+def test_cumulative_dose_boundaries():
+    from core.domain import cumulative_dose
+    cfg, preset, limits = load_thresholds(), {"quality_factor": 2.0}, {"career_effective_dose_msv": 600}
+    assert cumulative_dose(239.9, preset, limits, cfg)["band"] == "green"   # 479.8 mSv = 79.97%
+    assert cumulative_dose(240.0, preset, limits, cfg)["band"] == "amber"   # 80%
+    assert cumulative_dose(300.0, preset, limits, cfg)["band"] == "amber"   # 100%, not over
+    d = cumulative_dose(300.1, preset, limits, cfg)
+    assert d["band"] == "red" and d["response"]["system"]
+
+
+def test_immune_risk():
+    from core.domain import immune_risk
+    cfg = load_thresholds()
+    sig = {"nk_activity_pct": {"z": -3.0}, "rmssd_ms": {"z": 1.0}, "dose_mgy": {"z": 3.0}}
+    r = immune_risk(sig, cfg)
+    assert r["score"] == round(100 * (3 + 0 + 3) / 3 / 3, 1)  # rmssd above baseline counts as 0
+    assert r["inputs"]["lymphocytes_per_ul"] is None and "research concept" in r["label"]
+    assert immune_risk({}, cfg)["score"] is None
+
+
+def test_checkin_scoring():
+    from core.domain import score_checkin
+    cfg = load_thresholds()
+    assert score_checkin([354.9, 355, 400, 200], [6, 8], cfg) == {"reaction_lapses_pct": 50.0, "mood_score": 7}
+    with pytest.raises(ValueError):
+        score_checkin(None, [11], cfg)
+
+
+def test_model_window_matches_model_service():
+    from contract.schema import model_signals
+    from core.domain import model_window
+    names = model_signals()
+    snaps = [{"resting_hr_bpm": {"value": 70.0}}, {}]  # today, yesterday
+    w = model_window(snaps, {"resting_hr_bpm": (60.0, 5.0)}, names)
+    assert w["resting_hr_bpm"] == [0.0, 2.0] and set(w) == set(names)
+    from pathlib import Path
+    if not Path("artifacts/model_2d.pt").exists():
+        pytest.skip("no trained model")
+    from model.service import ScoreRequest, score
+    assert score(ScoreRequest(crew_id="cm1", window=w)).window_days == 2
+
+
+def test_api_mission_trend_checkin_and_model_down(client):
+    with client.websocket_connect("/ws") as ws:
+        for d in range(16):
+            co2 = 2.0 if d < 14 else 3.5
+            post_day(client, d, cabin_co2_mmhg=co2, dose_mgy=0.3)
+            ws.receive_json()
+        s = client.get("/crew/cm1/status").json()
+        assert s["anomaly"]["available"] is False  # no model service in tests: rules carry on (NFR-4)
+        assert s["signals"]["cabin_co2_mmhg"]["response"]["system"].startswith("Investigate")
+        assert s["signals"]["cumulative_dose_msv"]["value"] == round(16 * 0.3 * 1.85, 2)
+        assert s["mission"]["name"] == "station"
+        assert client.put("/mission", json={"preset": "nowhere"}).status_code == 422
+        assert client.put("/mission", json={"preset": "mars_transit"}).json()["alert_wording"].startswith("Follow")
+        assert ws.receive_json()["mission"]["name"] == "mars_transit"  # pushed to the app
+    t = client.get("/crew/cm1/signal/cabin_co2_mmhg?days=3").json()
+    assert [p["value"] for p in t["points"]] == [2.0, 2.0, 3.5, 3.5] and t["baseline_mean"] == 2.0
+    assert client.get("/crew/cm1/signal/nope").status_code == 404
+    r = client.post("/checkin", json={"crew_id": "cm1", "ts": (T0 + timedelta(days=16)).isoformat(),
+                                      "reaction_times_ms": [300, 400], "mood_answers": [7, 5]}).json()
+    assert sorted(r["accepted"]) == ["mood_score", "reaction_lapses_pct"]
+    s = client.get("/crew/cm1/status").json()
+    assert s["signals"]["reaction_lapses_pct"]["value"] == 50 and s["signals"]["mood_score"]["value"] == 6
+    assert client.post("/checkin", json={"crew_id": "cm1", "ts": T0.isoformat(), "mood_answers": [12]}).status_code == 422

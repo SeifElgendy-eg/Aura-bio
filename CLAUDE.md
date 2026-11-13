@@ -14,14 +14,12 @@ Flutter app are other workstreams and may land here later as `firmware/`, `app/`
 - `contract/presets.yaml` — mission presets (dose level, quality factor, delay).
 - `contract/thresholds.yaml` — amber/red rules per signal, cross-system `patterns` (research doc 7, with responses and citations), `baseline_days`,
   stale rule. Every number is from the research doc or a recorded team choice; the header lists what is not covered yet.
-- `core/` — core service (plan 3.5): `domain.py` (baseline, bands, status; pure, no I/O), `store.py` (SQLite), `app.py` (MQTT ingest of `aura/+/+`,
-  REST `/health`, `/crew`, `/crew/<id>/status`, `POST /checkin`, `DELETE /crew/<id>` for demo resets, WebSocket `/ws`). Pattern alerts are computed
-  per status (not stored yet). Not built yet: model client, immune-risk score, preset wording, ground report queue, alert acknowledgement.
-- `generator/` — `replay.py` swaps in real ISS CO2/dose as `provenance: replayed` (opt-in `--replay`); `sim.py` simulates per-astronaut baselines + AR(1) noise + scenario effects
-  (plan 6.2: co2_creep, sleep_debt, deconditioning, sensor_loss, solar_event, immune [90 days]); `publish.py` replays to MQTT.
-- `model/` — `dataset.py` (baseline z-normalisation; windows of 2, 7, 14 days), `autoencoder.py` (dense AE; one model per window length),
-  `train.py` (trains on normal days only, threshold = p99 normal error, saves `artifacts/model_{2,7,14}d.pt`), `service.py` (FastAPI
-  `/score`, `/health`; separate container so rule alerts survive a model crash, NFR-4).
+- `core/` — core service (plan 3.5): `domain.py` (all health logic, pure: bands, patterns, responses, cumulative dose,
+  immune-risk score, check-in scoring, model window), `store.py` (SQLite), `model_client.py` (calls `/score`; down = `anomaly.available: false`),
+  `app.py` (MQTT ingest of `aura/+/+`; REST `/health`, `/crew`, `/crew/<id>/status`, `/crew/<id>/signal/<name>?days=` trend,
+  `GET/PUT /mission` preset, `POST /checkin` (raw `reaction_times_ms`, `mood_answers` or signal `values`), `DELETE /crew/<id>`
+  demo reset; WebSocket `/ws` pushes the full status). Pattern alerts are recomputed per status, not stored. Not built: ground
+  report queue (FR-16), crew overview (FR-17), alert history/acknowledgement.
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).
@@ -34,7 +32,7 @@ If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run python data/validate.py` — simulator vs the real data (also run by `tests/test_validation.py`)
 - `uv run uvicorn model.service:app --port 8001`
-- `uv run uvicorn core.app:app --port 8000` — core service (env `AURA_DB`, `AURA_MQTT_HOST`, `AURA_MQTT_PORT`); works without a broker
+- `uv run uvicorn core.app:app --port 8000` — core service (env `AURA_DB`, `AURA_MQTT_HOST`, `AURA_MQTT_PORT`, `AURA_MODEL_URL`); works without a broker or model
 - `docker compose up --build` — broker :1883, core :8000, model :8001 (needs `artifacts/`)
 - `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo;
   use `--seed 12` (tests pin it: normal raises nothing, each scenario raises only its own pattern)

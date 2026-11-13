@@ -1,6 +1,7 @@
 """Core service: MQTT ingest, REST and WebSocket (plan 3.5 API layer).
 uvicorn core.app:app --port 8000
-Env: AURA_DB (default core.db), AURA_MQTT_HOST (default localhost), AURA_MQTT_PORT (default 1883).
+Env: AURA_DB (default core.db), AURA_MQTT_HOST (default localhost), AURA_MQTT_PORT (default 1883),
+AURA_MODEL_URL (default http://localhost:8001).
 """
 from __future__ import annotations
 
@@ -13,10 +14,10 @@ from datetime import datetime, timedelta
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from contract.schema import Reading, load_signals, load_thresholds
-from core import domain
+from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
+from core import domain, model_client
 from core.store import Store
 
 log = logging.getLogger("aura.core")
@@ -42,15 +43,37 @@ def ingest(payload: bytes | str, topic: str | None = None) -> Reading | None:
     return r
 
 
+def mission() -> dict:
+    name = store.setting("preset", "station")
+    return {"name": name, "preset": load_presets()[name], "limits": load_limits()}
+
+
+def anomaly(crew_id: str, latest: dict, baselines: dict, now: datetime) -> dict:
+    """FR-14: model score over up to 14 days of z-scores; optional, never blocks the rule alerts."""
+    if not baselines:
+        return {"available": False, "reason": "baseline not ready"}
+    first = datetime.fromisoformat(store.span(crew_id)[0])
+    n = min(14, (now - first).days + 1)
+    snaps = [latest] + [store.latest(crew_id, (now - timedelta(days=k)).isoformat()) for k in range(1, n)]
+    window = domain.model_window(snaps, baselines, model_signals())
+    return model_client.score(crew_id, window)
+
+
+def latest_ts(latest: dict) -> str:
+    return max(r["ts"] for r in latest.values())
+
+
 def crew_status(crew_id: str) -> dict | None:
     latest = store.latest(crew_id)
     if not latest:
         return None
     cfg = load_thresholds()
-    now = max(datetime.fromisoformat(r["ts"]) for r in latest.values())
+    now = datetime.fromisoformat(latest_ts(latest))
     history = [store.latest(crew_id, (now - timedelta(days=k)).isoformat())
                for k in range(1, domain.history_days(cfg) + 1)]
-    return domain.status(crew_id, latest, store.baselines(crew_id, cfg["baseline_days"]), cfg, load_signals(), history)
+    baselines = store.baselines(crew_id, cfg["baseline_days"])
+    return domain.status(crew_id, latest, baselines, cfg, load_signals(), history, mission(),
+                         store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, baselines, now))
 
 
 async def broadcast(crew_id: str) -> None:
@@ -95,7 +118,13 @@ app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
 class CheckIn(BaseModel):
     crew_id: str
     ts: datetime
-    values: dict[str, float]  # signal name -> value, e.g. {"mood_score": 6, "reaction_lapses_pct": 8}
+    values: dict[str, float] = {}  # signal name -> value, e.g. {"exercise_completion_pct": 95}
+    reaction_times_ms: list[float] | None = Field(None, min_length=1)  # raw reaction test, one per trial
+    mood_answers: list[float] | None = Field(None, min_length=1)  # one per mood question, on the checkin mood_scale
+
+
+class MissionChange(BaseModel):
+    preset: str
 
 
 @app.get("/health")
@@ -123,10 +152,47 @@ def reset_crew(crew_id: str):
     return {"cleared": crew_id}
 
 
+@app.get("/crew/{crew_id}/signal/{signal}")
+def trend(crew_id: str, signal: str, days: int = 30):
+    """FR-11: readings of one signal over the last `days` days, with the baseline band and thresholds."""
+    if signal not in {s["name"] for s in load_signals()}:
+        raise HTTPException(404, f"unknown signal {signal}")
+    cfg = load_thresholds()
+    _, last = store.span(crew_id)
+    if last is None:
+        raise HTTPException(404, f"no readings for {crew_id}")
+    since = (datetime.fromisoformat(last) - timedelta(days=days)).isoformat()
+    base = store.baselines(crew_id, cfg["baseline_days"]).get(signal)
+    return {"crew_id": crew_id, "signal": signal, "points": store.series(crew_id, signal, since),
+            "baseline_mean": base and base[0], "baseline_sd": base and base[1],
+            "rule": cfg["thresholds"].get(signal)}
+
+
+@app.get("/mission")
+def get_mission():
+    m = mission()
+    return {"name": m["name"], **m["preset"], "presets": list(load_presets())}
+
+
+@app.put("/mission")
+async def set_mission(m: MissionChange):
+    """FR-13: switch preset (demo mission panel); every crew member's status is pushed again."""
+    if m.preset not in load_presets():
+        raise HTTPException(422, f"unknown preset {m.preset}; choose from {list(load_presets())}")
+    store.set_setting("preset", m.preset)
+    for crew_id in store.crews():
+        await broadcast(crew_id)
+    return get_mission()
+
+
 @app.post("/checkin")
 async def checkin(c: CheckIn):
+    try:
+        scored = domain.score_checkin(c.reaction_times_ms, c.mood_answers, load_thresholds())
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
     ok = {}
-    for signal, value in c.values.items():
+    for signal, value in (c.values | scored).items():
         r = Reading.model_construct(crew_id=c.crew_id, ts=c.ts, signal=signal, value=value,
                                     source="app", provenance="simulated")
         ok[signal] = ingest(r.model_dump_json(), "checkin") is not None
