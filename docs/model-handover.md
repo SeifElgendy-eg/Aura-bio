@@ -30,22 +30,24 @@ Read first: `CLAUDE.md`, plan sections 4.3 (model), 5.3 (simulator values and va
 
 | Scenario              | Flagged (any window)                         | Median days to flag |
 | --------------------- | -------------------------------------------- | ------------------- |
-| Normal (false alarms) | 1.1% of days, 19% of astronauts over 20 days | —                   |
-| Sleep debt            | 64%                                          | 6                   |
-| Deconditioning        | 64%                                          | 6                   |
-| Solar particle event  | 91%                                          | same day            |
-| CO₂ creep             | 24% (barely above normal)                    | —                   |
-| Immune                | 16% (= normal)                               | —                   |
+| Normal (false alarms) | 1.4% of days, 22% of astronauts over 20 days | —                   |
+| Sleep debt            | 79%                                          | 5                   |
+| Deconditioning        | 86%                                          | 6                   |
+| Solar particle event  | 97%                                          | same day            |
+| CO₂ creep             | 30% (barely above normal)                    | —                   |
+| Immune                | 18% (= normal)                               | —                   |
 | Sensor loss           | 14% (= normal)                               | —                   |
+
+Retraining on new random data moves these by 10–20 points; compare changes over several seeds.
 
 The 7- and 14-day windows are weak. **First thing to try: robust scaling** (median and a spread
 that ignores outliers, instead of mean and SD over the 14 baseline days).
 
 ## What you must know about the data
 
-1. **Normal days have no links between signals.** Each signal is simulated independently (a bad night
-   does not raise the next day's heart rate). The autoencoder can only learn each signal's normal
-   range, and multi-signal scenarios are easier to spot than in real life. Treat detection rates as
+1. **Normal days have almost no links between signals.** Only sleep duration and sleep efficiency vary
+   together (r 0.59, real BIDSleep data). Everything else is independent (a bad night does not raise the
+   next day's heart rate or lapses), so multi-signal scenarios are easier to spot than in real life. Treat detection rates as
    optimistic.
 2. **Inputs: 10 daily signals**, in the order of `model: true` in `contract/signals.yaml`. Weekly lab
    values (lymphocytes, IL-6, NK, viral shedding) are _not_ inputs; rules and the immune-risk score

@@ -73,6 +73,26 @@ def validate(seed: int = 0, n_sim: int = N_SIM) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def links(seed: int = 0, n_sim: int = N_SIM) -> pd.DataFrame:
+    """Same-day links set with `corr` in signals.yaml: within-unit correlation, real vs simulated
+    (deviations from each unit's own mean, simulated units cut to the real number of values)."""
+    from contract.schema import load_signals
+    b = pd.read_csv(PROCESSED / "bidsleep_nights.csv")
+    sim = simulated(np.random.default_rng(seed), n_sim)
+    per_unit = int(b.groupby("subject").size().median())
+    within = lambda df, unit, a, c: (lambda d: d[a].corr(d[c]))(
+        df[[a, c]] - df.groupby(unit)[[a, c]].transform("mean"))
+    rows = []
+    for s in load_signals():
+        for other, r in s.get("corr", {}).items():
+            real = b.dropna(subset=[s["name"], other])
+            sm = sim.groupby("unit").head(per_unit)
+            rows.append({"signal": s["name"], "linked_to": other, "set_r": r,
+                         "real_r": within(real, "subject", s["name"], other),
+                         "sim_r": within(sm, "unit", s["name"], other), "real_values": len(real)})
+    return pd.DataFrame(rows)
+
+
 def flight_change(seed: int = 0) -> pd.DataFrame:
     """Inspiration4 day-after-landing change per crew member vs the immune scenario at full effect."""
     lab = pd.read_csv(PROCESSED / "inspiration4_labs.csv")
@@ -118,13 +138,16 @@ def match_spreads(iterations: int = 5, n_sim: int = 800) -> dict:
 
 def main() -> None:
     pd.set_option("display.width", 200)
-    v, f = validate(), flight_change()
+    v, f, l = validate(), flight_change(), links()
     PROCESSED.mkdir(exist_ok=True)
     v.to_csv(PROCESSED / "validation.csv", index=False, float_format="%.4g")
     f.to_csv(PROCESSED / "validation_flight_change.csv", index=False, float_format="%.4g")
     print(v.round(3).to_string(index=False))
     print()
     print(f.round(1).to_string(index=False))
+    print()
+    print(l.round(3).to_string(index=False))
+    l.to_csv(PROCESSED / "validation_links.csv", index=False, float_format="%.4g")
 
 
 if __name__ == "__main__":
