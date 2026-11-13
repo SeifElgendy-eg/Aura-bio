@@ -106,24 +106,43 @@ def swpc() -> list[dict]:
     return [save(RAW / "swpc" / f"integral-protons-7-day_{today}.json", url)]
 
 
-SOURCES = {"bidsleep": bidsleep, "radlab": radlab, "inspiration4": inspiration4, "swpc": swpc}
+# --- 1. OSDR Environmental Data App: ISS CO2 during Rodent Research missions ------------------
+# API docs: https://visualization.osdr.nasa.gov/eda/api_reference . Values are ppm
+# (median ~3600 ppm ~ 2.8 mmHg; 1 mmHg ~ 1316 ppm at 1 atm). 5-min cadence.
+EDA = "https://visualization.osdr.nasa.gov/eda/api/missions/"
+
+
+def eda() -> list[dict]:
+    missions = [m["name"] for m in json.loads(get(EDA))]
+    recs = []
+    for m in missions:
+        try:
+            recs.append(save(RAW / "eda" / f"{m}_co2_iss.json", f"{EDA}{m}/co2/iss/"))
+        except Exception as e:  # some missions have no CO2 series
+            print(f"  {m}: skipped ({e})")
+    return recs
+
+
+SOURCES = {"eda": eda, "bidsleep": bidsleep, "radlab": radlab, "inspiration4": inspiration4,
+           "swpc": swpc}
 
 
 def main() -> None:
     names = sys.argv[1:] or list(SOURCES)
-    manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
     for n in names:
         print(f"{n} ...", flush=True)
         try:
             recs = SOURCES[n]()
-        except Exception as e:  # keep going; report at the end
+        except Exception as e:  # keep going with the other sources
             print(f"  FAILED: {e}")
             continue
+        # re-read right before writing so parallel runs for other sources aren't clobbered
+        manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
         manifest[n] = {"fetched": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                        "files": recs}
+        RAW.mkdir(parents=True, exist_ok=True)
+        MANIFEST.write_text(json.dumps(manifest, indent=1))
         print(f"  {len(recs)} files, {sum(r['bytes'] for r in recs) / 1e6:.1f} MB")
-    RAW.mkdir(parents=True, exist_ok=True)
-    MANIFEST.write_text(json.dumps(manifest, indent=1))
 
 
 if __name__ == "__main__":
