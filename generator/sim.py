@@ -35,7 +35,7 @@ class Scenario:
 SCENARIOS: dict[str, Scenario] = {
     "normal": Scenario("normal"),
     "co2_creep": Scenario("co2_creep", effects={
-        "cabin_co2_mmhg": Effect("set", 3.2, 8),
+        "cabin_co2_mmhg": Effect("add", 1.2, 8),  # plan 6.2 size (2.0->3.2), from the cabin's own level
         "reaction_lapses_pct": Effect("mul", 0.25, 8),
         "mood_score": Effect("add", -0.8, 8),
     }),
@@ -43,8 +43,10 @@ SCENARIOS: dict[str, Scenario] = {
         "sleep_duration_h": Effect("add", -2.4, 5),  # same drop as plan 6.2 (7.2->4.8 h), from own baseline
         "sleep_efficiency_pct": Effect("add", -8, 5),
         "rmssd_ms": Effect("mul", -0.25, 5),
-        "mood_score": Effect("add", -2.0, 5),
-        "reaction_lapses_pct": Effect("mul", 0.2, 5),
+        # Van Dongen 2003: lapses keep rising across 14 days of restriction; sleepiness/mood
+        # responds in the first days, then plateaus. Sizes still the earlier guesses (awaiting review).
+        "mood_score": Effect("add", -2.0, 3),
+        "reaction_lapses_pct": Effect("mul", 0.2, 14),
     }),
     "deconditioning": Scenario("deconditioning", effects={
         "resting_hr_bpm": Effect("add", 12, 7),
@@ -61,12 +63,12 @@ def make_profile(rng: np.random.Generator) -> dict[str, float]:
 
 
 def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
-             scenario: Scenario | None = None, ar: float = 0.4) -> pd.DataFrame:
+             scenario: Scenario | None = None) -> pd.DataFrame:
     """Daily values, one row per day, one column per signal (NaN where a sensor dropped out)."""
     scenario = scenario or SCENARIOS["normal"]
     cols = {}
     for s in load_signals():
-        name, mean, sd = s["name"], profile[s["name"]], s["sim_sd"]
+        name, mean, sd, ar = s["name"], profile[s["name"]], s["sim_sd"], s.get("ar", 0.4)
         eps = rng.normal(0, sd * np.sqrt(1 - ar**2), n_days)  # stationary AR(1) with std sd
         noise = np.zeros(n_days)
         noise[0] = rng.normal(0, sd)

@@ -57,7 +57,7 @@ def eda() -> pd.DataFrame:
         d = pd.DataFrame(json.loads(Path(f).read_text()))
         if d.empty:
             continue
-        d["co2"] = clean_co2(d["co2_iss"]) / PPM_PER_MMHG
+        d["co2"] = clean_co2(pd.to_numeric(d["co2_iss"])) / PPM_PER_MMHG  # JSON nulls make it object dtype
         d["date"] = pd.to_datetime(d["time"]).dt.date
         day = d.groupby("date")["co2"].agg(co2_mmhg_mean="mean", co2_mmhg_min="min",
                                            co2_mmhg_max="max", n="count").reset_index()
@@ -149,17 +149,30 @@ def bidsleep() -> pd.DataFrame:
         start = pd.Timestamp(str(m["recStart"][0])).tz_localize("America/New_York").timestamp()
         hr = pd.read_csv(d / "hr.csv", header=None, names=["t", "hr"])
         rows.append({"subject": d.parent.name, "night": int(d.name),
+                     "date": pd.Timestamp(str(m["recStart"][0])).date(),
                      **night_metrics(m["expert_label"].ravel(), hr, start)})
     return pd.DataFrame(rows)
 
 
-def calibration(nights: pd.DataFrame, signals: list[str]) -> pd.DataFrame:
-    """sim_mean = mean of subject means; sim_sd = pooled night-to-night SD within a subject;
-    person_sd = SD of subject means (how much people differ from each other)."""
-    g = nights.groupby("subject")[signals]
-    return pd.DataFrame({"sim_mean": g.mean().mean(), "sim_sd": np.sqrt(g.var().mean()),
-                         "person_sd": g.mean().std(), "n_subjects": g.ngroups,
-                         "n_nights": len(nights)}).rename_axis("signal").reset_index()
+def lag1(df: pd.DataFrame, unit: str, col: str) -> tuple[float, int]:
+    """Day-to-day persistence: correlation of today's deviation from the unit's own mean with
+    yesterday's, using only pairs of calendar-consecutive days."""
+    d = df.sort_values([unit, "date"])
+    dev = d[col] - d.groupby(unit)[col].transform("mean")
+    consecutive = pd.to_datetime(d["date"]).groupby(d[unit]).diff().dt.days == 1
+    prev = dev.groupby(d[unit]).shift(1)
+    return float(np.corrcoef(dev[consecutive], prev[consecutive])[0, 1]), int(consecutive.sum())
+
+
+def calibration(df: pd.DataFrame, signals: list[str], unit: str) -> pd.DataFrame:
+    """Per signal, for the simulator: sim_mean = mean of unit means; sim_sd = pooled day-to-day SD
+    within a unit; person_sd = SD of unit means; ar = lag-1 persistence (see lag1).
+    unit = the thing that has its own normal level: a person (BIDSleep) or a cabin/mission (EDA)."""
+    g = df.groupby(unit)[signals]
+    out = pd.DataFrame({"sim_mean": g.mean().mean(), "sim_sd": np.sqrt(g.var().mean()),
+                        "person_sd": g.mean().std(), "n_units": g.ngroups, "n_days": len(df)})
+    out["ar"], out["n_pairs"] = zip(*(lag1(df, unit, s) for s in signals))
+    return out.rename_axis("signal").reset_index()
 
 
 BIDS_SIGNALS = ["resting_hr_bpm", "sleep_duration_h", "sleep_efficiency_pct"]
@@ -168,13 +181,19 @@ BIDS_SIGNALS = ["resting_hr_bpm", "sleep_duration_h", "sleep_efficiency_pct"]
 def bidsleep_outputs() -> dict:
     nights = bidsleep()
     return {"bidsleep_nights.csv": nights,
-            "bidsleep_calibration.csv": calibration(nights.dropna(subset=BIDS_SIGNALS), BIDS_SIGNALS)}
+            "bidsleep_calibration.csv": calibration(nights.dropna(subset=BIDS_SIGNALS), BIDS_SIGNALS, "subject")}
+
+
+def eda_outputs() -> dict:
+    days = eda()
+    cal = calibration(days.rename(columns={"co2_mmhg_mean": "cabin_co2_mmhg"}), ["cabin_co2_mmhg"], "mission")
+    return {"eda_co2_daily.csv": days, "eda_co2_calibration.csv": cal}
 
 
 SOURCES = {
     "bidsleep": bidsleep_outputs,
     "radlab": lambda: {"radlab_daily_dose.csv": radlab()},
-    "eda": lambda: {"eda_co2_daily.csv": eda()},
+    "eda": eda_outputs,
     "inspiration4": lambda: (lambda labs: {"inspiration4_labs.csv": labs,
                                            "inspiration4_change.csv": inspiration4_change(labs)})(inspiration4()),
 }

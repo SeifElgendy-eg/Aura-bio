@@ -99,7 +99,8 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | File | From | Notes |
 | --- | --- | --- |
 | `bidsleep_nights.csv` | BIDSleep | Per night, expert labels. Sleep efficiency = sleep time / time in bed (Unknown epochs excluded). Resting HR = lowest 30-min mean during sleep (nocturnal, Garmin-style). |
-| `bidsleep_calibration.csv` | BIDSleep | Mean, within-person night-to-night SD, between-person SD. **Written into `contract/signals.yaml`.** |
+| `bidsleep_calibration.csv` | BIDSleep | Mean, within-person night-to-night SD, between-person SD, lag-1 persistence (consecutive nights only, 64 pairs: rough). **Written into `contract/signals.yaml`.** |
 | `radlab_daily_dose.csv` | RadLab | Time-weighted daily absorbed dose (µGy/day) per DosTel detector. **Cleaning rules pending team review.** |
-| `eda_co2_daily.csv` | EDA | Daily CO2 in mmHg after dropping <1000/>10000 ppm and ≥1 h flat runs. **Cleaning rules pending team review.** |
+| `eda_co2_daily.csv` | EDA | Daily CO2 in mmHg after dropping <1000/>10000 ppm and ≥1 h flat runs. Results identical for flat-run 30 min/1 h/2 h and low cut 800/1000/1200 ppm. |
+| `eda_co2_calibration.csv` | EDA | Mean, within-mission day-to-day SD, between-mission SD, lag-1 persistence. **Written into `contract/signals.yaml`.** |
 | `inspiration4_labs.csv`, `inspiration4_change.csv` | Inspiration4 | All lab values, tidy; % change R+1 vs pre-flight mean. **Definition pending team review.** |
