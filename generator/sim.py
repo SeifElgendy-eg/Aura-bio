@@ -25,12 +25,14 @@ class Effect:
     value: float
     ramp_days: int = 5
     power: float | None = None
+    duration_days: int | None = None  # effect stops after this many days (e.g. a one-day event)
 
 
 @dataclass
 class Scenario:
     name: str
     onset_day: int = BASELINE_DAYS + 7
+    days: int = 40  # default run length for this scenario
     effects: dict[str, Effect] = field(default_factory=dict)
     drop_signals: list[str] = field(default_factory=list)  # stop publishing (sensor loss)
 
@@ -46,20 +48,79 @@ SCENARIOS: dict[str, Scenario] = {
         "sleep_duration_h": Effect("add", -2.4, 5),  # same drop as plan 6.2 (7.2->4.8 h), from own baseline
         "sleep_efficiency_pct": Effect("add", -8, 5),
         "rmssd_ms": Effect("mul", -0.25, 5),
-        # Van Dongen et al. 2003 (SLEEP 26:117), 4 h time-in-bed group (~3.8 h sleep, matching
-        # 6.25 - 2.4 h): PVT lapses +~14 per 10-min test at day 14 (Fig 1A) ~ +14 percentage points
-        # of trials, curve t^0.78, extrapolated past day 14. Sleepiness ~1 point on the 7-point SSS
-        # (~1.7 on our 0-10 scale), curve t^0.24 -- sleepiness used as a proxy for mood.
-        "mood_score": Effect("add", -1.7, 14, power=0.24),
+        # Van Dongen et al. 2003 (SLEEP 26:117), 4 h time-in-bed group (~3.8 h sleep; our scenario
+        # sleeps ~4.1 h = 6.5 - 2.4): PVT lapses +~14 per 10-min test at day 14 (Fig 1A) ~ +14
+        # percentage points of trials, curve t^0.78, extrapolated past day 14. The 3-min PVT-B at a
+        # 355 ms threshold tracks the 10-min PVT (Basner et al. 2011), so the size carries over.
+        # Mood: -0.8 = stress +7.7/100 at <=4 h sleep vs 7-8 h in ISS astronauts in flight (Jones et al.
+        # 2022, Table 1), converted to the 0-10 mood scale; saturating shape t^0.24 from Van Dongen 2003.
+        "mood_score": Effect("add", -0.8, 14, power=0.24),
         "reaction_lapses_pct": Effect("add", 14, 14, power=0.78),
     }),
+    # Exercise lapses -> bed-rest-like deconditioning. Sizes are the plan's PROPOSAL (not published):
+    # on the ISS, resting HR stays unchanged when crew exercise (Hughson et al.); bed rest without
+    # exercise raises it, but no rate was found. HR rise spread over 21 days (builds over weeks).
     "deconditioning": Scenario("deconditioning", effects={
-        "resting_hr_bpm": Effect("add", 12, 7),
+        "resting_hr_bpm": Effect("add", 12, 21),
         "exercise_completion_pct": Effect("set", 70, 7),
         "rmssd_ms": Effect("mul", -0.1, 7),
     }),
     "sensor_loss": Scenario("sensor_loss", drop_signals=["resting_hr_bpm", "rmssd_ms"]),
+    # Solar particle event, one day: the 10 Sep 2017 event added 0.146 mGy (Si) on the ISS (Berger et
+    # al. 2018, DOSIS 3D), i.e. +51% of a normal 0.285 mGy ISS day. Applied as a percentage so it scales
+    # to each astronaut and preset (for non-station presets that scaling is derived, not measured).
+    "solar_event": Scenario("solar_event", effects={
+        "dose_mgy": Effect("mul", 0.146 / 0.285, 1, duration_days=1),
+    }),
+    # Long-duration immune dysregulation, ramping in over 60 days (NK drop measured at flight day 90,
+    # Bigley et al. 2019). Sizes: lymphocytes -27%, IL-6 +90% (Inspiration4 average, day after
+    # landing); NK activity -50% (Bigley 2019). Shedding chance per weekly sample 3% -> 23%: healthy
+    # controls 3% (Mehta et al. 2017); 23% of astronaut saliva samples EBV-positive (NASA, shuttle era).
+    "immune": Scenario("immune", days=90, effects={
+        "lymphocytes_per_ul": Effect("mul", -0.27, 60),
+        "il6_pg_ml": Effect("mul", 0.90, 60),
+        "nk_activity_pct": Effect("mul", -0.50, 60),
+        "viral_pcr_positive": Effect("set", 0.23, 60),
+    }),
 }
+
+
+def log_sigma(spread: float, level: float) -> float:
+    """Log-scale sigma that gives a lognormal with this mean (level) and standard deviation (spread)."""
+    return float(np.sqrt(np.log1p((spread / level) ** 2)))
+
+
+def to_logit(x, s: dict):
+    lo, hi = s["logit"]
+    return np.log((x - lo) / (hi - x))
+
+
+def from_logit(u, s: dict):
+    lo, hi = s["logit"]
+    return lo + (hi - lo) / (1 + np.exp(-u))
+
+
+def logit_center(s: dict) -> float:
+    """Logit-scale centre whose average, after person and day-to-day variation, equals sim_mean
+    (squeezing toward the ends shifts the average, so the plain logit of sim_mean is slightly off)."""
+    k = logit_slope(s)
+    sig = k * np.hypot(s["person_sd"], s["sim_sd"])
+    z, w = np.polynomial.hermite_e.hermegauss(40)
+    w = w / w.sum()
+    u = to_logit(s["sim_mean"], s)
+    for _ in range(30):  # Newton steps on mean(u) = sim_mean
+        x = from_logit(u + sig * z, s)
+        lo, hi = s["logit"]
+        f, df = (w * x).sum() - s["sim_mean"], (w * (x - lo) * (hi - x) / (hi - lo)).sum()
+        u -= f / df
+    return float(u)
+
+
+def logit_slope(s: dict) -> float:
+    """d logit / dx at the typical level: converts spreads in signal units to the logit scale."""
+    lo, hi = s["logit"]
+    m = s["sim_mean"]
+    return (hi - lo) / ((m - lo) * (hi - m))
 
 
 def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str, float]:
@@ -72,7 +133,17 @@ def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str,
         if s["name"] == "dose_mgy":
             scale = p["dose_mgy_day"] / mean
             mean, spread = mean * scale, spread * scale
-        prof[s["name"]] = mean + rng.normal(0, spread)
+        if s.get("log"):  # multiplicative offset: never <= 0, keeps the stated average and spread
+            sig = log_sigma(spread, s["sim_mean"])
+            prof[s["name"]] = mean * np.exp(rng.normal(0, sig) - sig**2 / 2)
+        elif "log_from" in s:  # multiplicative SHORTFALL below a cap: approaches it, never sits on it
+            top, gap = s["log_from"], s["log_from"] - s["sim_mean"]
+            sig = log_sigma(spread, gap)
+            prof[s["name"]] = top - gap * np.exp(rng.normal(0, sig) - sig**2 / 2)
+        elif "logit" in s:  # bounded both ends: varies on the logit scale, never sits on either end
+            prof[s["name"]] = from_logit(logit_center(s) + rng.normal(0, spread * logit_slope(s)), s)
+        else:
+            prof[s["name"]] = mean + rng.normal(0, spread)
     return prof
 
 
@@ -81,8 +152,12 @@ def effect_ramp(scenario: Scenario, name: str, n_days: int) -> np.ndarray:
     eff = scenario.effects.get(name)
     if not eff:
         return np.zeros(n_days)
-    t = np.clip(np.arange(n_days) - scenario.onset_day + 1, 0, None) / eff.ramp_days
-    return t ** eff.power if eff.power else np.clip(t, 0, 1)
+    since = np.arange(n_days) - scenario.onset_day + 1        # 1 on the onset day
+    t = np.clip(since, 0, None) / eff.ramp_days
+    ramp = t ** eff.power if eff.power else np.clip(t, 0, 1)
+    if eff.duration_days:
+        ramp = np.where(since > eff.duration_days, 0.0, ramp)
+    return ramp
 
 
 def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str) -> np.ndarray:
@@ -110,14 +185,26 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         noise[0] = rng.normal(0, sd)
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
-        if "p" in s:  # binary yes/no signal (e.g. viral shedding): independent draw per day
-            x = (rng.random(n_days) < s["p"]).astype(float)
-            x = apply_effect(x, mean, scenario, name)
+        if "p" in s:  # binary yes/no signal (e.g. viral shedding): effects change the chance, not the 0/1
+            p = apply_effect(np.full(n_days, s["p"]), s["p"], scenario, name)
+            x = (rng.random(n_days) < p).astype(float)
         else:
             # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
             # so it scales with each astronaut's or preset's level and never goes negative
-            x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
+            if s.get("log"):  # -sig^2/2 keeps the average at `mean` (exp of a normal is biased up)
+                sig = log_sigma(sd, s["sim_mean"])
+                x = mean * np.exp(sig * noise / sd - sig**2 / 2)
+            elif "log_from" in s:  # shortfall below the cap varies multiplicatively
+                top = s["log_from"]
+                sig = log_sigma(sd, top - s["sim_mean"])
+                x = top - (top - mean) * np.exp(sig * noise / sd - sig**2 / 2)
+            elif "logit" in s:
+                x = from_logit(to_logit(mean, s) + noise * logit_slope(s), s)
+            else:
+                x = mean + noise
             x = apply_effect(x, mean, scenario, name)
+        if "min" in s or "max" in s:  # hard limits of the scale (e.g. efficiency <= 100%)
+            x = np.clip(x, s.get("min", -np.inf), s.get("max", np.inf))
         if "interval_days" in s:  # measured only on sample days (e.g. weekly blood test)
             x = np.where(np.arange(n_days) % s["interval_days"] == 0, x, np.nan)
         if name in scenario.drop_signals:

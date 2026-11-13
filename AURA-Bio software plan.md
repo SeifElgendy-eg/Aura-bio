@@ -11,13 +11,17 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 1.2, 4.3 | Anomaly model: three autoencoders on 2-, 7- and 14-day windows instead of one short window |
 | 4.1 | Resting heart rate defined as nocturnal (lowest 30-min mean during sleep) |
 | 4.1, 4.2 | New signal `dose_mgy` (daily absorbed dose, per astronaut) and a model input; mission presets live in `contract/presets.yaml` |
-| 4.4 | Station dose rate measured; Moon dose rate sourced (to verify); quality factors added |
+| 4.4 | Dose rates and quality factors verified against the papers; radiation limits added |
 | 4.7 | Data and model tooling added (uv, CPU PyTorch, pandas, scipy) |
 | 5 | All datasets downloaded, processed and committed to the repo |
-| 5.3 (new) | Which simulator values are calibrated from real data or papers, and which are still guesses |
+| 5.3 (new) | Which simulator values are calibrated from real data or papers, and which are documented assumptions |
 | 6.2 | CO₂ creep and sleep debt now relative to each astronaut's or cabin's own baseline; sleep debt follows Van Dongen et al. 2003; expected results updated |
 | 5.4 (new) | Real-data replay of ISS CO₂ and dose |
 | 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
+| 6.2 | New immune dysregulation and solar particle event scenarios |
+| 8.6 | DOIs added; Jones 2022, Basner 2011 and the immune/PVT/exercise sources added |
+| 5.3 | Distribution shapes fixed so no signal piles up at a limit; BP person spread 10; every value marked sourced, estimated or assumption; CO₂ floor 0.76 mmHg; shedding 3%, NK 14%, lapse spreads |
+| 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
@@ -263,16 +267,16 @@ The autoencoders train on generated normal days whose levels, day-to-day spread 
 
 ### 4.4 Mission presets
 
-| Preset | One-way signal delay | Dose rate (absorbed) | Quality factor (verify) | Alert wording |
+| Preset | One-way signal delay | Dose rate (absorbed) | Quality factor | Alert wording |
 | --- | --- | --- | --- | --- |
-| Station | Near real time | 0.285 mGy per day (RadLab DosTel mean, Jan–Mar 2022) | 2.0 | Contact the ground |
-| Moon | About 1.3 seconds | About 0.32 mGy per day (Chang'e 4 LND; verify) | 4.3 | Contact the ground |
-| Mars transit | Roughly 3 to 22 minutes | 0.48 mGy per day | 3.8 | Follow onboard protocol; report queued |
-| Mars surface | Roughly 3 to 22 minutes | 0.21 mGy per day | 3.05 | Follow onboard protocol; report queued |
+| Station | Near real time | 0.285 mGy per day (RadLab DosTel mean, Jan–Mar 2022) | 1.85 (derived) | Contact the ground |
+| Moon | About 1.3 seconds | 0.317 mGy per day (Chang'e 4, Zhang et al. 2020) | 4.3 | Contact the ground |
+| Mars transit | Roughly 3 to 22 minutes | 0.48 mGy per day | 3.83 | Follow onboard protocol; report queued |
+| Mars surface | Roughly 3 to 22 minutes | 0.21 mGy per day | 3.2 | Follow onboard protocol; report queued |
 
 Presets live in `contract/presets.yaml`. Each astronaut's daily dose varies about 5.5% day to day (measured on the ISS and reused for the other presets) around their own level.
 
-Mars dose rates are Curiosity measurements ([Hassler et al.](https://typeset.io/pdf/mars-surface-radiation-environment-measured-with-the-mars-244eildtx0.pdf)). The Station rate is a time-weighted daily average of real ISS detector readings (readings come more often inside the South Atlantic Anomaly, so a plain average would over-count to ~0.75 mGy/day). The Moon rate is absorbed dose on the lunar surface from Zhang et al. 2020 (*Science Advances*), entered from memory and still to be checked against the paper. Delay figures are approximate and need a citation before the pitch.
+Mars dose rates are Curiosity measurements ([Hassler et al.](https://typeset.io/pdf/mars-surface-radiation-environment-measured-with-the-mars-244eildtx0.pdf)). The Station rate is a time-weighted daily average of real ISS detector readings (readings come more often inside the South Atlantic Anomaly, so a plain average would over-count to ~0.75 mGy/day). Quality factors are dose equivalent ÷ absorbed dose from the same papers (Mars: Zeitlin et al. 2013, 1.84 mSv/day in transit; Hassler et al. 2014, 0.67 mSv/day on the surface; Moon: Zhang et al. 2020, 1,369 µSv/day). The Station factor is derived (Zhang's lunar/ISS ratio of 2.6 against our measured ISS dose). Limits for the rules: 600 mSv career effective dose and 250 mSv per solar particle event (NASA-STD-3001). Delay figures are approximate and need a citation before the pitch.
 
 ### 4.5 Reliability tactics
 
@@ -331,7 +335,7 @@ Status: done. `data/fetch.py` downloads every source into `data/raw/` and record
 | 3 | [Curiosity RAD](https://typeset.io/pdf/mars-surface-radiation-environment-measured-with-the-mars-244eildtx0.pdf) | Mars cruise and surface dose rates | Mars presets | Published values |
 | 4 | [PhysioNet BIDSleep](https://www.physionet.org/content/bidsleep-dataset/1.0.1/) | 253 nights, 47 adults: heart rate and expert-scored sleep stages (accelerometer skipped) | Calibrating heart rate and sleep | Downloaded (38 MB, hash-checked), per-night metrics computed. Calibrates the simulator |
 | 5 | OSDR Inspiration4: OSD-569, OSD-575 | Crew blood count, metabolic, cardiovascular and cytokine panels, 4 crew × 7 time points | Anchors for analyzer signals and immune-risk score | Downloaded (0.3 MB), tidy table and before/after-flight change computed (e.g. lymphocytes −27%, IL-6 +90% the day after landing). Not yet a simulator signal |
-| 6 | [NOAA SWPC proton flux](https://www.swpc.noaa.gov/node/39) | 7 days of 5-minute proton flux | Optional solar particle event | Downloaded, not processed |
+| 6 | [NOAA SWPC proton flux](https://www.swpc.noaa.gov/node/39) | 7 days of 5-minute proton flux | Optional solar particle event | Downloaded; the window holds no event (≥10 MeV peak 0.48, storm level starts at 10), so the solar scenario uses a published ISS event instead |
 
 Priorities 1 to 4 are enough to state that real NASA data runs through the system. Datasets listed on the official challenge page take precedence over this list.
 
@@ -357,19 +361,21 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | Signal | Level | Day-to-day spread | Person-to-person spread | Day-to-day persistence | Source |
 | --- | --- | --- | --- | --- | --- |
 | Resting heart rate | 60.1 bpm | 3.6 | 5.3 | 0.25 | BIDSleep |
-| Sleep duration | 6.25 h | 1.0 | 0.7 | −0.20 | BIDSleep (ISS crews average 6.09 h, Barger et al. 2014) |
-| Sleep efficiency | 88.9% | 5.8 | 4.7 | −0.27 | BIDSleep |
-| Cabin CO₂ | 2.21 mmHg | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
+| Sleep duration | 6.5 h | 1.0 | 0.7 | −0.20 | Level: ISS astronauts (Jones et al. 2022); spreads: BIDSleep |
+| Sleep efficiency | 91.8% (max 100) | 5.8 | 4.7 | −0.27 | Level: Jones et al. 2022; spreads: BIDSleep |
+| Cabin CO₂ | 2.21 mmHg (min 0.76) | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
-| HRV (RMSSD) | 55 ms (guess) | 17 ms, multiplicative | 10 (guess) | 0.4 (guess) | Bellenger et al. 2022 |
-| Systolic BP | 118 mmHg (guess) | 9 mmHg | 6 (guess) | 0.4 (guess) | Ohasama study |
-| Reaction lapses, mood, exercise | guesses | guesses | guesses | 0.4 (guess) | none found yet |
+| HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (assumption) | Bellenger et al. 2022; Nunan et al. 2010 |
+| Systolic BP | 117 mmHg | 9 mmHg | 10 (estimated: Ohasama's 13.4 covers ages 7–98 and gave systolic < 90 on 4.5% of days) | 0.4 (assumption) | Ohasama study |
+| Reaction lapses | 7.5% of trials | 5.4 (derived) | 6.5 (estimated) | 0.4 (assumption) | Basner et al. 2011; PVT reliability ICC 0.59 |
+| Mood (0–10) | 6.2 | 0.6 (assumption) | 1.7 (estimated) | 0.4 (assumption) | Jones et al. 2022 (in-flight stress ~38/100, converted) |
+| Exercise completion | 98% (assumption) | 4 (assumption) | 2 (assumption) | 0.4 (assumption) | none; ISS crews log ~600 min/week, 168 ± 44 min aerobic (ENERGY study) |
 | Lymphocytes (weekly) | 2,679 /µL | 10.1% | 23.9% | — | Inspiration4; Coskun et al. 2020 |
 | IL-6 (weekly) | 3.7 pg/mL | 30% | 21% | — | Inspiration4; biological-variation studies (25–50%) |
-| NK activity (weekly) | 100% of own baseline | 10% (guess) | — | — | Bigley et al. 2019 for flight change |
-| Viral shedding (weekly) | 5% of samples positive (guess) | — | — | — | Mehta et al. 2017 for flight change |
+| NK activity (weekly) | 100% of own baseline | 14% | — | — | TINKL study (123 adults); Bigley et al. 2019 for flight change |
+| Viral shedding (weekly) | 3% of samples positive | — | — | — | Mehta et al. 2017 (healthy controls) |
 
-Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model.
+Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model. Signals that can't go below 0 (HRV, lapses, labs, dose) vary multiplicatively; sleep efficiency and exercise vary as a shortfall below 100%; mood varies on a logit scale between 0 and 10. None of them can pile up at a limit. Every value is sourced, estimated (derived, rough) or a documented assumption; the full list is in `data/SOURCES.md` ("Final status").
 
 ## 6. Verification
 
@@ -390,10 +396,12 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Scenario | Input | Expected result |
 | --- | --- | --- |
 | CO₂ creep | CO₂ rises 1.2 mmHg above the cabin's own level over 8 days; headache logged; reaction lapses up 25% | Environment amber then red; pattern "CO₂-associated performance impairment"; response: check ventilation. Caught by the rules, not by the anomaly model (score peaks at 0.9, below the alarm line of 1) |
-| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down 1.7 points, mostly in the first days | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
-| Deconditioning | Resting heart rate up 12 bpm; exercise completion 70%; slow recovery | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
+| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down 0.8 points (from astronaut stress ratings, Jones et al. 2022), mostly in the first days | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
+| Deconditioning (exercise lapses) | Exercise completion drops to 70%; resting heart rate rises 12 bpm over 21 days; HRV down 10%. Sizes are this plan's proposal: on the ISS, resting HR stays flat when crew exercise (Hughson et al.); bed rest without exercise raises it | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
+| Solar particle event | On day 21 every crew member's dose is 51% higher for one day (+0.146 mGy on the ISS, as measured on 10 Sep 2017, Berger et al. 2018); other presets scaled by their own level (derived) | Radiation amber; cumulative dose steps up; dose is a model input, so the anomaly score can react |
+| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 23% of weekly samples (from 3%; NASA astronaut saliva data) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
 
 ### 6.3 Model performance
 
@@ -401,11 +409,15 @@ Measured over 200 simulated astronauts per scenario (`model.train` prints this);
 
 | Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 11% of astronauts over 20 days; 1.3% of normal days | — | 14-day: 2% |
-| Sleep debt | 90% | 6 | 2-day: 78%, day 6 |
-| Deconditioning | 99% | 6 | 14-day: 99%, day 6 |
-| CO₂ creep | 22% (barely above normal) | 7 | caught by the rules instead |
-| Sensor loss | 6% | — | handled by stale marking (FR-8) |
+| Normal (false alarms) | 16% of astronauts over 20 days; 1.2% of normal days | — | 14-day: 1% |
+| Sleep debt | 78% | 6 | 2-day: 76% |
+| Deconditioning | 76% | 6 | 2-day: 76%; 14-day: 43% |
+| Solar particle event | 96% | same day | 2-day: 96% |
+| CO₂ creep | 28% (barely above normal) | 10 | caught by the rules instead |
+| Immune dysregulation | 16% (= normal) | — | lab values are not model inputs; caught by the rules |
+| Sensor loss | 10% | — | handled by stale marking (FR-8) |
+
+After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity: the plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
 
 ## 7. Delivery
 
@@ -461,12 +473,35 @@ Licences were not checked for most repos. Confirm each before copying code.
 
 ### 8.6 Papers used for simulator values
 
-| Paper | Used for |
-| --- | --- |
-| Van Dongen, Maislin, Mullington, Dinges 2003, *SLEEP* 26:117 | Sleep debt: lapses +14 per 10-min test by day 14 in the 4 h group (curve t^0.78); sleepiness ~1 point of 7, levelling off (t^0.24), used as a mood proxy |
-| Law et al. 2014, *J Occup Environ Med* 56:477 | CO₂ and headache: odds roughly double per +1 mmHg; keep 7-day average below 2.5 mmHg |
-| Barger et al. 2014, *Lancet Neurology* | ISS crews sleep 6.09 h a night on average |
-| Bellenger et al. 2022, *Sensors* 22:6723 | HRV day-to-day variation, 3–13% of log-RMSSD |
-| Kikuya et al. 2008, *Hypertension* (Ohasama study) | Home systolic BP day-to-day spread ~9 mmHg |
-| Zhang et al. 2020, *Science Advances* | Moon surface dose (to verify) |
-| Song et al. 2025, *IEEE TBME*; BIDSleep dataset (ODC-By) | Wearable heart rate and sleep; cite when used |
+DOIs marked * were taken from memory and should be checked when the paper is opened.
+
+| Paper | DOI | Used for |
+| --- | --- | --- |
+| Van Dongen, Maislin, Mullington, Dinges 2003, *SLEEP* 26:117 | 10.1093/sleep/26.2.117 | Sleep debt: lapses +14 per 10-min test by day 14 in the 4 h group (curve t^0.78); sleepiness ~1 point of 7, levelling off (t^0.24), used as a mood proxy |
+| Law et al. 2014, *J Occup Environ Med* 56:477 | 10.1097/JOM.0000000000000158 * | CO₂ and headache: odds roughly double per +1 mmHg; keep 7-day average below 2.5 mmHg |
+| Barger et al. 2014, *Lancet Neurology* | 10.1016/S1474-4422(14)70122-X * | ISS crews sleep 6.09 h a night on average |
+| Bellenger et al. 2022, *Sensors* 22:6723 | 10.3390/s22186723 * | HRV day-to-day variation, 3–13% of log-RMSSD |
+| Nunan et al. 2010, *Pacing Clin Electrophysiol* | 10.1111/j.1540-8159.2010.02841.x * | Short-term RMSSD average ~42 ms, normal range 19–75 ms |
+| Kikuya et al. 2008, *Hypertension* (Ohasama study) | 10.1161/HYPERTENSIONAHA.107.104620 * | Home systolic BP day-to-day spread ~9 mmHg; level 117.3, between-person SD 13.4 |
+| Coskun et al. 2020, *Clin Chem Lab Med* 58:25 | 10.1515/cclm-2019-0658 | Lymphocytes: within-person 10.1%, between-person 23.9% |
+| Bigley et al. 2019, *J Appl Physiol* | 10.1152/japplphysiol.00761.2018 * | NK cell activity −50% at flight day 90 |
+| Mehta et al. 2017, *npj Microgravity* | 10.1038/s41526-017-0015-y | 61% of ISS crew shed herpesviruses |
+| Agha et al. 2020, *J Appl Physiol* | 10.1152/japplphysiol.00560.2019 | Salivary sIgA rises in flight (signal not simulated) |
+| Zhang et al. 2020, *Science Advances* 6:eaaz1334 | 10.1126/sciadv.aaz1334 | Moon surface dose: 13.2 µGy/h absorbed, 1,369 µSv/day dose equivalent |
+| Zeitlin et al. 2013, *Science* 340:1080 | 10.1126/science.1235989 * | Mars transit dose equivalent 1.84 mSv/day |
+| Hassler et al. 2014, *Science* 343 | 10.1126/science.1244797 | Mars cruise 0.48 and surface 0.21 mGy/day; surface 0.67 mSv/day |
+| Berger et al. 2018, *Space Weather* (DOSIS 3D) | not found ([PDF](https://elib.dlr.de/120788/1/ME-SBA-2018-Berger-Matthi%C3%A4_et%20al-DOSIS-3D_Space%20Weather.pdf)) | Solar event of 10 Sep 2017 added 0.146 mGy on the ISS |
+| NASA-STD-3001 | — | Radiation limits: 600 mSv career, 250 mSv per solar event |
+| Hughson et al. 2012, *J Appl Physiol* | 10.1152/japplphysiol.01196.2011 * | ISS resting HR unchanged in flight with exercise; HRV high-frequency power falls |
+| Exercise on the ISS, *npj Microgravity* 2023 | 10.1038/s41526-023-00256-5 | ISS crews log ~600 min of exercise a week (450–720) |
+| Song et al. 2025, *IEEE TBME*; BIDSleep dataset (ODC-By) | — | Wearable heart rate and sleep; cite when used |
+
+| Jones, Basner, Mollicone, Mott, Dinges 2022, *SLEEP* 45:zsac006 | 10.1093/sleep/zsac006 | ISS astronauts: sleep 6.5 h, efficiency 91.8%; stress ~38/100 in flight; stress +7.7 at ≤4 h sleep |
+| Basner, Mollicone, Dinges 2011, *Acta Astronautica* 69:949 | 10.1016/j.actaastro.2011.07.015 | Rested 3-min PVT-B ≈ 7.5% lapses (≥355 ms); tracks the 10-min PVT |
+
+| Mehta et al. 2017; NASA NTRS 20110000846 | 10.1038/s41526-017-0015-y | Shedding: 3% of samples in healthy controls; 23% of astronaut saliva samples EBV-positive |
+| TINKL NK assay study (PubMed 23567516) | — | NK natural killing: 14% inter-test CV in 123 healthy adults |
+| 5-min PVT test-retest study (J Neurosci Methods 2021); Hörmann et al. 2013 | — | PVT lapse repeat-test agreement ICC 0.59 (r 0.42–0.61) |
+| ENERGY study, *npj Microgravity* 2024 | 10.1038/s41526-024-00360-0 | ISS aerobic exercise 168 ± 44 min/week (context for the exercise assumption) |
+
+Still wanted: the Jones 2022 supplement (astronaut lapse levels, Fig S5A).

@@ -1,3 +1,4 @@
+import pandas as pd
 import numpy as np
 
 from contract.schema import Reading, load_signals, model_signals
@@ -72,3 +73,70 @@ def test_labs_weekly_and_plausible():
     assert (lab.dropna() > 0).all() and (df["il6_pg_ml"].dropna() > 0).all()
     assert set(df["viral_pcr_positive"].dropna().unique()) <= {0.0, 1.0}
     assert all(s not in model_signals() for s in ["lymphocytes_per_ul", "il6_pg_ml"])
+
+
+def test_immune_scenario_sizes():
+    sc = SCENARIOS["immune"]
+    pre, post = [], []
+    shed_pre, shed_post = [], []
+    rng = np.random.default_rng(3)
+    for _ in range(300):
+        df = simulate(make_profile(rng), sc.days, rng, sc)
+        lab = df["lymphocytes_per_ul"].dropna()
+        pre.append(lab[lab.index < sc.onset_day].mean())
+        post.append(lab[lab.index >= sc.onset_day + 60].mean())      # full effect
+        v = df["viral_pcr_positive"].dropna()
+        shed_pre.append(v[v.index < sc.onset_day].mean())
+        shed_post.append(v[v.index >= sc.onset_day + 60].mean())
+    assert abs(np.mean(post) / np.mean(pre) - 0.73) < 0.05          # lymphocytes -27%
+    assert np.mean(shed_pre) < 0.08 and abs(np.mean(shed_post) - 0.23) < 0.06
+
+
+def test_solar_event_is_one_day_spike():
+    sc = SCENARIOS["solar_event"]
+    rng = np.random.default_rng(5)
+    ratios = []
+    for _ in range(200):
+        d = simulate(make_profile(rng), sc.days, rng, sc)["dose_mgy"]
+        normal = d.drop(index=sc.onset_day).mean()
+        ratios.append(d[sc.onset_day] / normal)
+        assert abs(d[sc.onset_day + 1] / normal - 1) < 0.25                # back to normal next day
+    assert abs(np.mean(ratios) - (1 + 0.146 / 0.285)) < 0.05               # +51% on the event day
+
+
+def test_scale_limits_hold():
+    rng = np.random.default_rng(9)
+    df = pd.concat([simulate(make_profile(rng), 60, rng, SCENARIOS["sleep_debt"]) for _ in range(200)])
+    assert df["sleep_efficiency_pct"].max() <= 100 and df["reaction_lapses_pct"].min() >= 0
+    assert df["mood_score"].between(0, 10).all()
+
+
+def test_log_signals_keep_stated_average():
+    from contract.schema import load_signals
+    rng = np.random.default_rng(4)
+    df = pd.concat([simulate(make_profile(rng), 60, rng) for _ in range(1500)])
+    for s in load_signals():
+        if s.get("log"):
+            # sampling error of the average grows with the person-to-person spread (3 standard errors)
+            tol = max(0.02, 3 * s["person_sd"] / s["sim_mean"] / np.sqrt(1500))
+            assert abs(df[s["name"]].mean() / s["sim_mean"] - 1) < tol, s["name"]
+            assert (df[s["name"]].dropna() > 0).all(), s["name"]
+
+
+def test_spreads_match_and_caps_dont_pile_up():
+    from contract.schema import load_signals
+    rng = np.random.default_rng(6)
+    profiles = [make_profile(rng) for _ in range(4000)]
+    for s in load_signals():
+        if s.get("log") or "log_from" in s:            # person-to-person spread matches what's stated
+            got = np.std([p[s["name"]] for p in profiles])
+            assert s["person_sd"] == 0 or abs(got / s["person_sd"] - 1) < 0.15, s["name"]
+    df = pd.concat([simulate(p, 60, rng) for p in profiles[:1500]])
+    for name in ["sleep_efficiency_pct", "exercise_completion_pct"]:
+        assert (df[name] >= 100).mean() < 0.001, name                     # no pile-up at the cap
+    assert abs(df["sleep_efficiency_pct"].mean() - 91.8) < 0.5
+    assert abs(df["exercise_completion_pct"].mean() - 98) < 0.5
+    assert (df["mood_score"].isin([0, 10])).mean() < 0.001
+    assert abs(df["mood_score"].mean() - 6.2) < 0.06                 # logit: never on either end
+    base = pd.concat([simulate(p, BASELINE_DAYS, rng)["mood_score"] for p in profiles[:1500]], axis=1)
+    assert (base.std() > 0).all()                                          # no flat mood baselines

@@ -10,7 +10,7 @@ Datasets on the official challenge page take precedence over this list.
 | 1 | [NASA OSDR Environmental Data App](https://visualization.osdr.nasa.gov/eda) ([API](https://visualization.osdr.nasa.gov/eda/api_reference)) | ISS CO2 (`co2_iss`, **ppm**, 5-min cadence) for all 24 Rodent Research / APEX / VEG missions, 2014 onward | `cabin_co2_mmhg` normal baseline (currently sim_mean 2.0) | 35 MB | `fetch.py eda` ✓ |
 | 2 | [NASA RadLab](https://visualization.osdr.nasa.gov/radlab/gui/data-api) | ISS DosTel1/DosTel2 absorbed dose rate (µGy/h) + dose-equivalent rate (µSv/h), 2022-01-01 → 2022-04-01, ~72 s cadence | Dose signal, station preset (aggregate to daily) | 13 MB | `fetch.py radlab` ✓ |
 | 3 | Curiosity RAD (Hassler et al.) | Mars cruise 0.48 / surface 0.21 mGy/day | Mars presets | — | published values |
-| 3b | Chang'e 4 LND (Zhang et al. 2020, *Science Advances*, "First measurements of the radiation dose on the lunar surface") | Lunar surface absorbed dose ~13.2 µGy/h in silicon (~0.32 mGy/day); dose equivalent ~1369 µSv/day | Moon preset (plan 4.4 said "to be sourced") | — | published values; **verify figures against the paper before the pitch**. RadLab lists Chang'e 4 but its API returned no rows. |
+| 3b | Chang'e 4 LND (Zhang et al. 2020, *Science Advances*, "First measurements of the radiation dose on the lunar surface") | Lunar surface absorbed dose ~13.2 µGy/h in silicon (~0.32 mGy/day); dose equivalent ~1369 µSv/day | Moon preset (plan 4.4 said "to be sourced") | — | published values, checked against the paper's abstract and press releases (13.2 µGy/h; 1,369 µSv/day). RadLab lists Chang'e 4 but its API returned no rows. |
 | 4 | [PhysioNet BIDSleep 1.0.1](https://physionet.org/content/bidsleep-dataset/1.0.1/) | `hr.csv` (~0.2 Hz HR) + `labels.mat` (EEG sleep stages, 30 s epochs), 47 adults, 253 nights. **Skips `motion.csv`** (that's most of the 6.4 GB zip) | Calibrate `sim_sd`/`person_sd` for HR & sleep; normal-night data | ~29 MB | `fetch.py bidsleep` ✓ (sha256-checked) |
 | 5 | OSDR Inspiration4: [OSD-569](https://osdr.nasa.gov/bio/repo/data/studies/OSD-569), [OSD-575](https://osdr.nasa.gov/bio/repo/data/studies/OSD-575) | CBC (LSDS-7), CMP + serum immune/cardiovascular cytokine panels (LSDS-8). Skips RNA-seq | Analyzer signals, immune-risk anchors | 0.3 MB | `fetch.py inspiration4` ✓ |
 | 6 | [NOAA SWPC](https://services.swpc.noaa.gov/json/goes/primary/) | GOES integral proton flux, rolling 7 days | Optional solar particle event | 1.7 MB | `fetch.py swpc` ✓ |
@@ -112,16 +112,36 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | Signal / scenario | Value | Source |
 | --- | --- | --- |
 | `rmssd_ms` day-to-day spread | 17 ms (lnRMSSD CV ~8%), simulated in log space | Bellenger et al. 2022, *Sensors* 22:6723 |
-| `bp_systolic_mmhg` day-to-day spread | 9 mmHg | Kikuya et al. 2008, Ohasama study, *Hypertension* |
+| `bp_systolic_mmhg` | day-to-day 9 mmHg; level 117.3, between people 13.4 (ages 7–98); simulator uses 10 (estimated, toward a screened adult crew: 13.4 gave systolic < 90 on 4.5% of days) | Kikuya et al. 2008 and Ohasama reference values |
+| `rmssd_ms` level and between-person spread | level 55 kept as an estimate for nightly RMSSD (daytime ECG ~42); between people 15 ms from the 19–75 ms normal range | Nunan et al. 2010 |
 | Sleep debt: reaction lapses | +14 percentage points at day 14, curve t^0.78, extrapolated past day 14 | Van Dongen et al. 2003, *SLEEP* 26:117, 4 h group (Fig 1A, θ = 0.78) |
-| Sleep debt: mood | −1.7 at day 14, curve t^0.24 (sleepiness used as mood proxy) | Van Dongen et al. 2003, SSS ~1 point of 7, θ = 0.24 |
+| Sleep debt: mood | −0.8 at day 14, curve t^0.24: stress +7.7/100 at ≤4 h sleep vs 7–8 h, ISS astronauts in flight, converted to mood 0–10 | Jones et al. 2022, *SLEEP* 45:zsac006, Table 1; shape from Van Dongen 2003 |
+| Sleep levels | 6.5 h, efficiency 91.8% (ISS astronauts in flight, n=24); spreads from BIDSleep | Jones et al. 2022 |
+| Reaction lapses | level 7.5% of trials (rested 3-min PVT-B ≈ 4.7 lapses ≥355 ms of ~62 stimuli); person-to-person 6.5 points (estimated from Fig 4 error bars, N=43); day-to-day 5.4 (derived from repeat-test agreement ICC 0.59); simulated multiplicatively (never ≤ 0, average stays 7.5) | Basner et al. 2011; PVT lapse reliability (ICC 0.59, 5-min PVT; r 0.42–0.61, Hörmann 2013) |
+| Mood | level 6.2 = 10 − stress/10, in-flight stress ~38/100 (rises +3.6 over 6 months; lower on weekends); person-to-person 1.7 (estimated from Fig 1H error bars); day-to-day 0.6 is an assumption; simulated on a logit scale so no astronaut sits at 0 or 10 | Jones et al. 2022 |
 | CO2 creep size | +1.2 mmHg above cabin's own level | Plan 6.2; symptom link: Law et al. 2014, *J Occup Environ Med* 56:477 |
-| Preset dose levels and quality factors | Station 0.285 mGy/day (RadLab); Moon 0.32 (Zhang 2020, verify); Mars transit 0.48, surface 0.21 (Zeitlin 2013, Hassler 2014). Quality factors 2.0 / 4.3 / 3.8 / 3.05 (verify) | `contract/presets.yaml` |
+| Preset dose levels and quality factors | Station 0.285 mGy/day (RadLab), quality factor 1.85 (derived: Zhang 2020's lunar/ISS ratio 2.6 → ~527 µSv/day ÷ 0.285); Moon 0.317 mGy/day, 4.3 (Zhang et al. 2020, *Science Advances*); Mars transit 0.48 mGy/day, 3.83 (Hassler et al. 2014; Zeitlin et al. 2013, *Science* 340:1080: 1.84 mSv/day); Mars surface 0.21 mGy/day, 3.2 (Hassler et al. 2014, *Science* 343: 0.67 mSv/day) | `contract/presets.yaml` |
+| Radiation limits | Career 600 mSv effective dose; 250 mSv per solar particle event | NASA-STD-3001 (NASA OCHMO radiation technical brief) |
+| Deconditioning scenario | HR +12 bpm over 21 days, exercise 70%, HRV −10%: plan's proposal, not published. ISS resting HR is unchanged in flight with exercise (Hughson et al., *J Appl Physiol* 2012); bed rest raises it (no rate found) | |
 | Lymphocytes | level 2,679/µL (Inspiration4 pre-flight); sample-to-sample 10.1%, between people 23.9% | Coskun et al. 2020, *Clin Chem Lab Med* 58:25 |
 | IL-6 | level 3.7 pg/mL (Inspiration4); sample-to-sample 30% (published 25–50%); between people 21% (Inspiration4) | e.g. PubMed 9676390 (48%), others 27–30% |
-| NK activity, viral shedding | % of own baseline (spread 10%: guess); shedding chance 5% per sample (guess). Flight findings for a future immune scenario: NK −50% at flight day 90 (Bigley et al. 2019); 61% of ISS crew shed herpesviruses (Mehta et al. 2017) | |
+| NK activity, viral shedding | NK: % of own baseline, 14% per sample (inter-test CV of natural killing in 123 healthy adults; TINKL study, PubMed 23567516). Shedding: 3% of samples in healthy controls (Mehta et al. 2017; 3.7% and 2–5% in other NASA reports) | |
+| Solar event scenario (`solar_event`) | Day 21: dose ×1.51 for one day = +0.146 mGy on the ISS (10 Sep 2017, Berger et al. 2018, DOSIS 3D); scales to other presets (derived). NOAA download has no event (≥10 MeV peak 0.48 pfu, S1 starts at 10), so it is not used | |
+| Exercise | No published adherence %; ISS crews log ~600 min/week, range 450–720 (npj Microgravity 2023, 10.1038/s41526-023-00256-5). `exercise_completion_pct` 98% is a documented assumption | |
+| Immune scenario (`immune`, 90 days) | From day 21, ramping over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4 averages), NK activity −50% (Bigley et al. 2019, flight day 90); viral shedding chance per weekly sample 3% → 23% (23% of astronaut saliva samples EBV-positive, NASA NTRS 20110000846) | |
 | Not simulated (no usable data) | sIgA (rises in flight, Agha et al. 2020), vitamin D (falls, Smith/Zwart), calories (74–80% of recommended), body mass (falls), fluid | future work |
-| ISS sleep reference | 6.09 h/night on ISS (our BIDSleep calibration: 6.25 h) | Barger et al. 2014, *Lancet Neurology* |
+| ISS sleep reference | 6.09 h/night on ISS (Barger); 6.5 h in Jones 2022, which the simulator now uses | Barger et al. 2014, *Lancet Neurology* |
 
 Conversion note: Van Dongen counts lapses (RT > 500 ms) per 10-min PVT (~100 stimuli), so +14 lapses
 ≈ +14 percentage points. The app's 90-s test is shorter and less sensitive; treat this as approximate.
+
+
+## Final status of every simulator value
+
+| Status | Values |
+| --- | --- |
+| Sourced from data | Resting HR (all); sleep spreads and persistence; cabin CO₂ (all); daily dose (all); lymphocytes and IL-6 levels; CO₂ floor (cleaning cut) |
+| Sourced from papers | Sleep levels; HRV day-to-day and person spread; BP (all except persistence); lapse level; mood level; lymphocyte and IL-6 variation; NK variation; shedding rates; all scenario sizes except deconditioning; preset doses, quality factors, limits |
+| Estimated (derived, rough) | HRV level 55; lapse person spread 6.5 and day-to-day 5.4; mood person spread 1.7; Station quality factor 1.85 |
+| Proposed (plan) | Deconditioning sizes (HR +12, exercise 70%, HRV −10%) |
+| Assumptions (no published data found) | Mood day-to-day 0.6; exercise level 98% and spreads 4 / 2; persistence 0.4 for HRV, BP, lapses, mood, exercise |

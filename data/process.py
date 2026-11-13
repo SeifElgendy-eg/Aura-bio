@@ -87,15 +87,17 @@ def inspiration4() -> pd.DataFrame:
             m = VALUE_COL.match(col)
             if not m:
                 continue
-            rmin = col.replace("_value_", "_range_min_")
-            rmax = col.replace("_value_", "_range_max_")
+            # only CBC/CMP "<x>_value_<unit>" columns have reference ranges; cytokine columns don't
+            has_range = "_value_" in col
+            rmin = col.replace("_value_", "_range_min_") if has_range else None
+            rmax = col.replace("_value_", "_range_max_") if has_range else None
             part = pd.DataFrame({
                 "crew": d[sample].str.split("_").str[0],
                 "timepoint": d[sample].str.extract(r"_([LR][+-]\d+)", expand=False),
                 "panel": panel, "analyte": m["analyte"], "unit": m["unit"] or "ratio",
                 "value": pd.to_numeric(d[col], errors="coerce"),
-                "ref_min": pd.to_numeric(d[rmin], errors="coerce") if rmin in d else np.nan,
-                "ref_max": pd.to_numeric(d[rmax], errors="coerce") if rmax in d else np.nan,
+                "ref_min": pd.to_numeric(d[rmin], errors="coerce") if rmin in d.columns else np.nan,
+                "ref_max": pd.to_numeric(d[rmax], errors="coerce") if rmax in d.columns else np.nan,
             })
             out.append(part)
     res = pd.concat(out).dropna(subset=["value"])
