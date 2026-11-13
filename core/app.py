@@ -13,7 +13,7 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -165,7 +165,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 class CheckIn(BaseModel):
     crew_id: str
-    ts: datetime
+    # None = the crew member's current simulated day (their newest reading): the app does not know how far a
+    # replayed scenario has run, and a wall-clock ts would land weeks in the past or jump everyone to stale
+    ts: datetime | None = None
     values: dict[str, float] = {}  # signal name -> value, e.g. {"exercise_completion_pct": 95}
     reaction_times_ms: list[float] | None = Field(None, min_length=1)  # raw reaction test, one per trial
     mood_answers: list[float] | None = Field(None, min_length=1)  # one per mood question, on the checkin mood_scale
@@ -268,9 +270,11 @@ async def checkin(c: CheckIn):
         scored = domain.score_checkin(c.reaction_times_ms, c.mood_answers, load_thresholds())
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
+    last = store.span(c.crew_id)[1]
+    ts = c.ts or (datetime.fromisoformat(last) if last else datetime.now(timezone.utc))
     ok = {}
     for signal, value in (c.values | scored).items():
-        r = Reading.model_construct(crew_id=c.crew_id, ts=c.ts, signal=signal, value=value,
+        r = Reading.model_construct(crew_id=c.crew_id, ts=ts, signal=signal, value=value,
                                     source="app", provenance="simulated")
         ok[signal] = ingest(r.model_dump_json(), "checkin") is not None
     await broadcast(c.crew_id)

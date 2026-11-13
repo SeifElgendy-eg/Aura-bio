@@ -17,7 +17,7 @@ app (no longer Flutter, unlike the plan) are other workstreams and may land here
 - `core/` — core service (plan 3.5): `domain.py` (all health logic, pure: bands, patterns, responses, cumulative dose,
   immune-risk score, check-in scoring, model window), `store.py` (SQLite), `model_client.py` (calls `/score`; down = `anomaly.available: false`),
   `app.py` (MQTT ingest of `aura/+/+`; REST `/health`, `/crew`, `/crew/<id>/status`, `/crew/<id>/signal/<name>?days=` trend,
-  `GET/PUT /mission` preset, `POST /checkin` (raw `reaction_times_ms`, `mood_answers` or signal `values`), `DELETE /crew/<id>`
+  `GET/PUT /mission` preset, `POST /checkin` (raw `reaction_times_ms`, `mood_answers` or signal `values`; `ts` optional, default = the crew member's newest reading, i.e. the current simulated day), `DELETE /crew/<id>`
   demo reset, `/crew/overview` (FR-17), `POST /alerts/<id>/ack`, `/ground/reports` (FR-16: released after the preset's one-way
   delay, wall clock); WebSocket `/ws` pushes the full status). Layers as plan 3.5: app -> domain + store/model_client; the
   store never calls the domain. Tables follow the plan's data view: mission, crew_member, reading, baseline (saved once its

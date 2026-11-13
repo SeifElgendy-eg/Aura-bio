@@ -245,6 +245,9 @@ def test_api_mission_trend_checkin_and_model_down(client):
     s = client.get("/crew/cm1/status").json()
     assert s["signals"]["reaction_lapses_pct"]["value"] == 50 and s["signals"]["mood_score"]["value"] == 6
     assert client.post("/checkin", json={"crew_id": "cm1", "ts": T0.isoformat(), "mood_answers": [12]}).status_code == 422
+    client.post("/checkin", json={"crew_id": "cm1", "mood_answers": [2]})  # no ts: lands on the crew's current day
+    m = client.get("/crew/cm1/status").json()["signals"]["mood_score"]
+    assert m["value"] == 2 and m["ts"] == (T0 + timedelta(days=16)).isoformat()
 
 
 def test_labs_wait_for_their_longer_baseline(client):
