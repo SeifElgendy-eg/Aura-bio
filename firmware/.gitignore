@@ -1,0 +1,8 @@
+.pio/
+unneeded/
+__pycache__/
+*.pyc
+PLAN.md
+NEXT_MODEL_PROMPT.md
+LOG.md
+STATE.md
