@@ -27,7 +27,9 @@
 #   rmssd_ms level 55: nightly estimate (daytime ECG average ~42).
 #   reaction_lapses_pct person_sd 6.5: Basner 2011 Fig 4 error bars (N=43); sim_sd 5.4: from repeat-test agreement
 #     ICC 0.59 for PVT lapses with that person_sd.
-#   mood_score person_sd 1.7: Jones 2022 Fig 1H error bars (n~21).
+#   reaction_lapses_pct is log: true, so the large spreads never push a personal level to 0 or below.
+#   mood_score person_sd 1.7: Jones 2022 Fig 1H error bars (n~21). Accepted side effect: ~1.7% of astronauts get a
+#     personal level above 10 and sit at the top of the scale, which mutes their sleep-debt mood drop.
 # ASSUMPTIONS (no published data found)
 #   mood_score sim_sd 0.6; exercise_completion_pct level 98% and spreads 4 / 2 (ISS crews log ~600 min/week but no
 #   completion % is published); ar 0.4 for rmssd_ms, bp_systolic_mmhg, reaction_lapses_pct, mood_score,
@@ -38,7 +40,7 @@ signals:
   - {name: bp_systolic_mmhg,       system: cardiovascular, group: vitals,    source: generator, sim_mean: 117,  sim_sd: 9,    person_sd: 13.4, model: true}
   - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 6.5,  sim_sd: 1.01, person_sd: 0.73, ar: -0.20, min: 0, max: 24,  model: true}
   - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 91.8, sim_sd: 5.76, person_sd: 4.71, ar: -0.27, min: 0, max: 100,  model: true}
-  - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 5.4,  person_sd: 6.5,  min: 0, max: 100, model: true}
+  - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 5.4,  person_sd: 6.5,  log: true, min: 0, max: 100, model: true}
   - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 6.2,  sim_sd: 0.6,  person_sd: 1.7,  min: 0, max: 10, model: true}
   - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.46, person_sd: 0.50, ar: 0.87, min: 0.76,  model: true}
   - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    min: 0, max: 100, model: true}

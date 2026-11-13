@@ -117,5 +117,7 @@ def test_log_signals_keep_stated_average():
     df = pd.concat([simulate(make_profile(rng), 60, rng) for _ in range(1500)])
     for s in load_signals():
         if s.get("log"):
-            assert abs(df[s["name"]].mean() / s["sim_mean"] - 1) < 0.02, s["name"]
+            # sampling error of the average grows with the person-to-person spread (3 standard errors)
+            tol = max(0.02, 3 * s["person_sd"] / s["sim_mean"] / np.sqrt(1500))
+            assert abs(df[s["name"]].mean() / s["sim_mean"] - 1) < tol, s["name"]
             assert (df[s["name"]].dropna() > 0).all(), s["name"]
