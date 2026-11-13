@@ -23,6 +23,7 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 5.3 | Distribution shapes fixed so no signal piles up at a limit; BP person spread 10; every value marked sourced, estimated or assumption; CO₂ floor 0.76 mmHg; shedding 3%, NK 14%, lapse spreads |
 | 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
+| 5.3, 6.2 | Simulator validated against all real datasets; spreads matched by simulation; immune response size varies per astronaut (spread 78%) |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
 
@@ -360,10 +361,10 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 
 | Signal | Level | Day-to-day spread | Person-to-person spread | Day-to-day persistence | Source |
 | --- | --- | --- | --- | --- | --- |
-| Resting heart rate | 60.1 bpm | 3.6 | 5.3 | 0.25 | BIDSleep |
-| Sleep duration | 6.5 h | 1.0 | 0.7 | −0.20 | Level: ISS astronauts (Jones et al. 2022); spreads: BIDSleep |
-| Sleep efficiency | 91.8% (max 100) | 5.8 | 4.7 | −0.27 | Level: Jones et al. 2022; spreads: BIDSleep |
-| Cabin CO₂ | 2.21 mmHg (min 0.76) | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
+| Resting heart rate | 60.1 bpm | 3.8 | 4.6 | 0.25 | BIDSleep (spreads matched by simulation) |
+| Sleep duration | 6.5 h | 0.98 | 0.64 | −0.20 | Level: ISS astronauts (Jones et al. 2022); spreads: BIDSleep |
+| Sleep efficiency | 91.8% (max 100) | 4.9 | 4.4 | −0.27 | Level: Jones et al. 2022; spreads: BIDSleep |
+| Cabin CO₂ | 2.21 mmHg (min 0.76) | 0.56 | 0.39 (between cabins) | 0.87 | NASA EDA (spreads matched by simulation) |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
 | HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (assumption) | Bellenger et al. 2022; Nunan et al. 2010 |
 | Systolic BP | 117 mmHg | 9 mmHg | 10 (estimated: Ohasama's 13.4 covers ages 7–98 and gave systolic < 90 on 4.5% of days) | 0.4 (assumption) | Ohasama study |
@@ -371,11 +372,25 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | Mood (0–10) | 6.2 | 0.6 (assumption) | 1.7 (estimated) | 0.4 (assumption) | Jones et al. 2022 (in-flight stress ~38/100, converted) |
 | Exercise completion | 98% (assumption) | 4 (assumption) | 2 (assumption) | 0.4 (assumption) | none; ISS crews log ~600 min/week, 168 ± 44 min aerobic (ENERGY study) |
 | Lymphocytes (weekly) | 2,679 /µL | 10.1% | 23.9% | — | Inspiration4; Coskun et al. 2020 |
-| IL-6 (weekly) | 3.7 pg/mL | 30% | 21% | — | Inspiration4; biological-variation studies (25–50%) |
+| IL-6 (weekly) | 3.7 pg/mL | 30% | 11% (matched by simulation) | — | Inspiration4; biological-variation studies (25–50%) |
 | NK activity (weekly) | 100% of own baseline | 14% | — | — | TINKL study (123 adults); Bigley et al. 2019 for flight change |
 | Viral shedding (weekly) | 3% of samples positive | — | — | — | Mehta et al. 2017 (healthy controls) |
 
 Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model. Signals that can't go below 0 (HRV, lapses, labs, dose) vary multiplicatively; sleep efficiency and exercise vary as a shortfall below 100%; mood varies on a logit scale between 0 and 10. None of them can pile up at a limit. Every value is sourced, estimated (derived, rough) or a documented assumption; the full list is in `data/SOURCES.md` ("Final status").
+
+**Validation against the real data** (`data/validate.py`, also a test). Copying the raw spreads overstated the person-to-person spread, because a person's average over ~5 nights still carries day-to-day noise. The spreads marked "matched by simulation" were therefore tuned until simulated runs as long as the real ones reproduce the real statistics. Result, real vs simulated:
+
+| Signal | Within-unit spread | Between-unit spread | Real values inside simulated 95% range |
+| --- | --- | --- | --- |
+| Resting HR (47 people) | 3.64 vs 3.57 | 5.28 vs 5.21 | 94.5% |
+| Sleep duration | 1.01 vs 1.03 | 0.73 vs 0.75 | 96.4% |
+| Sleep efficiency | 5.76 vs 5.78 | 4.71 vs 5.03 | 96.4% |
+| Cabin CO₂ (10 missions) | 0.46 vs 0.46 | 0.50 vs 0.50 | 95.0% |
+| Daily dose (2 detectors) | 0.016 vs 0.016 | 0.026 vs 0.026 | 97.8% |
+| IL-6 (4 crew) | 1.04 vs 1.15 | 0.76 vs 0.77 | 100% |
+| Lymphocytes (4 crew) | 1,333 vs 280 | 899 vs 656 | 91.7% |
+
+Sleep levels differ on purpose (ISS values, not BIDSleep's ground nights). Lymphocyte spreads stay on Coskun et al. 2020: the 4 Inspiration4 crew were sampled months apart, which adds slow change a weekly sample would not show. Flight change (day after landing vs pre-flight): lymphocytes −26.8% real vs −26.5% simulated, IL-6 +90% vs +98%. All 4 crew fall inside the simulated 95% range, because each simulated astronaut gets their own response size (spread 78% of the average, as among the Inspiration4 crew: lymphocytes −48% to +2%).
 
 ## 6. Verification
 
@@ -401,7 +416,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
 | Solar particle event | On day 21 every crew member's dose is 51% higher for one day (+0.146 mGy on the ISS, as measured on 10 Sep 2017, Berger et al. 2018); other presets scaled by their own level (derived) | Radiation amber; cumulative dose steps up; dose is a model input, so the anomaly score can react |
-| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 23% of weekly samples (from 3%; NASA astronaut saliva data) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
+| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 23% of weekly samples (from 3%; NASA astronaut saliva data). Each astronaut's response size varies (spread 78%, Inspiration4 crew), applied on the log scale so no value goes below 0; averages unchanged | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
 
 ### 6.3 Model performance
 
@@ -409,15 +424,15 @@ Measured over 200 simulated astronauts per scenario (`model.train` prints this);
 
 | Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 16% of astronauts over 20 days; 1.2% of normal days | — | 14-day: 1% |
-| Sleep debt | 78% | 6 | 2-day: 76% |
-| Deconditioning | 76% | 6 | 2-day: 76%; 14-day: 43% |
-| Solar particle event | 96% | same day | 2-day: 96% |
-| CO₂ creep | 28% (barely above normal) | 10 | caught by the rules instead |
+| Normal (false alarms) | 19% of astronauts over 20 days; 1.1% of normal days | — | 14-day: 1% |
+| Sleep debt | 64% | 6 | 2-day: 60% |
+| Deconditioning | 64% | 6 | 2-day: 60%; 7-day: 43% |
+| Solar particle event | 91% | same day | 2-day: 91% |
+| CO₂ creep | 24% (barely above normal) | 10 | caught by the rules instead |
 | Immune dysregulation | 16% (= normal) | — | lab values are not model inputs; caught by the rules |
-| Sensor loss | 10% | — | handled by stale marking (FR-8) |
+| Sensor loss | 14% | — | handled by stale marking (FR-8) |
 
-After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity: the plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
+After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%: the plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
 
 ## 7. Delivery
 

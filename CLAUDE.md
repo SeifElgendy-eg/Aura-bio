@@ -26,6 +26,7 @@ If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv sync` · `uv run pytest -q`
 - `uv run python -m model.train` — trains the 3 models, then reports detection rate, days to detection and false alarms over 200 simulated astronauts per scenario
 - `uv run python data/process.py` — raw data to `data/processed/`
+- `uv run python data/validate.py` — simulator vs the real data (also run by `tests/test_validation.py`)
 - `uv run uvicorn model.service:app --port 8001`
 - `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo
 - Data decisions (cleaning rules, cut-offs, calibration values, scenario sizes) are the user's call: show the numbers and ask first.

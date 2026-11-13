@@ -33,6 +33,7 @@ class Scenario:
     name: str
     onset_day: int = BASELINE_DAYS + 7
     days: int = 40  # default run length for this scenario
+    response_sd: float = 0.0  # spread of each astronaut's response size (1 = average); 0 = identical
     effects: dict[str, Effect] = field(default_factory=dict)
     drop_signals: list[str] = field(default_factory=list)  # stop publishing (sensor loss)
 
@@ -76,7 +77,9 @@ SCENARIOS: dict[str, Scenario] = {
     # Bigley et al. 2019). Sizes: lymphocytes -27%, IL-6 +90% (Inspiration4 average, day after
     # landing); NK activity -50% (Bigley 2019). Shedding chance per weekly sample 3% -> 23%: healthy
     # controls 3% (Mehta et al. 2017); 23% of astronaut saliva samples EBV-positive (NASA, shuttle era).
-    "immune": Scenario("immune", days=90, effects={
+    # Crew respond very differently: Inspiration4 per-crew changes spread ~78% of the average change
+    # (lymphocytes -48/-34/-27/+2%, IL-6 +31/+59/+81/+190%), so each astronaut gets their own response size.
+    "immune": Scenario("immune", days=90, response_sd=0.78, effects={
         "lymphocytes_per_ul": Effect("mul", -0.27, 60),
         "il6_pg_ml": Effect("mul", 0.90, 60),
         "nk_activity_pct": Effect("mul", -0.50, 60),
@@ -160,15 +163,28 @@ def effect_ramp(scenario: Scenario, name: str, n_days: int) -> np.ndarray:
     return ramp
 
 
-def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str) -> np.ndarray:
-    """Add the scenario's effect for this signal to a daily series (simulated or replayed)."""
+def mul_base(value: float, response_sd: float) -> float:
+    """Base b so that b ** response averages 1 + value over response ~ N(1, response_sd):
+    E[b**R] = b * exp(response_sd**2 * ln(b)**2 / 2). Keeps the stated average change."""
+    b = 1 + value
+    for _ in range(50):
+        b = (1 + value) / np.exp(response_sd**2 * np.log(b) ** 2 / 2)
+    return b
+
+
+def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str,
+                 scale: float = 1.0) -> np.ndarray:
+    """Add the scenario's effect for this signal to a daily series (simulated or replayed).
+    scale = this astronaut's response size (1 = the average effect)."""
     eff = scenario.effects.get(name)
     if not eff:
         return x
-    ramp = effect_ramp(scenario, name, len(x))
+    ramp = effect_ramp(scenario, name, len(x)) * scale
     if eff.mode == "add":
         return x + ramp * eff.value
     if eff.mode == "mul":
+        if scenario.response_sd:  # response size varies: log scale, so a large response never crosses 0
+            return x * mul_base(eff.value, scenario.response_sd) ** ramp
         return x * (1 + ramp * eff.value)
     return x + ramp * (eff.value - mean)  # "set"
 
@@ -177,6 +193,8 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
              scenario: Scenario | None = None) -> pd.DataFrame:
     """Daily values, one row per day, one column per signal (NaN where a sensor dropped out)."""
     scenario = scenario or SCENARIOS["normal"]
+    # this astronaut's response size, shared by all signals in the scenario
+    scale = 1 + rng.normal(0, scenario.response_sd) if scenario.response_sd else 1.0
     cols = {}
     for s in load_signals():
         name, mean, sd, ar = s["name"], profile[s["name"]], s["sim_sd"], s.get("ar", 0.4)
@@ -186,7 +204,7 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
         if "p" in s:  # binary yes/no signal (e.g. viral shedding): effects change the chance, not the 0/1
-            p = apply_effect(np.full(n_days, s["p"]), s["p"], scenario, name)
+            p = np.clip(apply_effect(np.full(n_days, s["p"]), s["p"], scenario, name, scale), 0, 1)
             x = (rng.random(n_days) < p).astype(float)
         else:
             # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
@@ -202,7 +220,7 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
                 x = from_logit(to_logit(mean, s) + noise * logit_slope(s), s)
             else:
                 x = mean + noise
-            x = apply_effect(x, mean, scenario, name)
+            x = apply_effect(x, mean, scenario, name, scale)
         if "min" in s or "max" in s:  # hard limits of the scale (e.g. efficiency <= 100%)
             x = np.clip(x, s.get("min", -np.inf), s.get("max", np.inf))
         if "interval_days" in s:  # measured only on sample days (e.g. weekly blood test)
