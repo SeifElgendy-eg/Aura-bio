@@ -117,6 +117,10 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | Sleep debt: mood | −1.7 at day 14, curve t^0.24 (sleepiness used as mood proxy) | Van Dongen et al. 2003, SSS ~1 point of 7, θ = 0.24 |
 | CO2 creep size | +1.2 mmHg above cabin's own level | Plan 6.2; symptom link: Law et al. 2014, *J Occup Environ Med* 56:477 |
 | Preset dose levels and quality factors | Station 0.285 mGy/day (RadLab); Moon 0.32 (Zhang 2020, verify); Mars transit 0.48, surface 0.21 (Zeitlin 2013, Hassler 2014). Quality factors 2.0 / 4.3 / 3.8 / 3.05 (verify) | `contract/presets.yaml` |
+| Lymphocytes | level 2,679/µL (Inspiration4 pre-flight); sample-to-sample 10.1%, between people 23.9% | Coskun et al. 2020, *Clin Chem Lab Med* 58:25 |
+| IL-6 | level 3.7 pg/mL (Inspiration4); sample-to-sample 30% (published 25–50%); between people 21% (Inspiration4) | e.g. PubMed 9676390 (48%), others 27–30% |
+| NK activity, viral shedding | % of own baseline (spread 10%: guess); shedding chance 5% per sample (guess). Flight findings for a future immune scenario: NK −50% at flight day 90 (Bigley et al. 2019); 61% of ISS crew shed herpesviruses (Mehta et al. 2017) | |
+| Not simulated (no usable data) | sIgA (rises in flight, Agha et al. 2020), vitamin D (falls, Smith/Zwart), calories (74–80% of recommended), body mass (falls), fluid | future work |
 | ISS sleep reference | 6.09 h/night on ISS (our BIDSleep calibration: 6.25 h) | Barger et al. 2014, *Lancet Neurology* |
 
 Conversion note: Van Dongen counts lapses (RT > 500 ms) per 10-min PVT (~100 stimuli), so +14 lapses

@@ -9,6 +9,11 @@
 # bp_systolic_mmhg sim_sd 9: home SBP within-person day-to-day SD (Ohasama study, Kikuya et al. 2008).
 # dose_mgy: daily absorbed dose, calibrated from RadLab ISS DosTel (data/processed/radlab_dose_calibration.csv);
 # person_sd = spread between the two detector locations (only 2 locations: rough); per-preset level in presets.yaml.
+# Lab signals (group labs, model: false, interval_days: 7 = one analyzer sample a week; days between are
+# not published). lymphocytes/il6 level = Inspiration4 pre-flight; sample-to-sample CV: lymphocytes 10.1%,
+# between people 23.9% (Coskun et al. 2020 meta-analysis); IL-6 30% (middle of published 25-50%), between
+# people 21% (Inspiration4). nk_activity_pct = % of own baseline; its spread (10%) is a GUESS.
+# viral_pcr_positive: 1 = herpesvirus shedding in that sample; p = per-sample chance, 0.05 is a GUESS.
 # All other sim_* values (and the HRV/BP means and person_sd) are still guesses awaiting review.
 # `model: true` signals form the autoencoder input vector, IN THIS ORDER.
 signals:
@@ -22,3 +27,7 @@ signals:
   - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.46, person_sd: 0.50, ar: 0.87,  model: true}
   - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    model: true}
   - {name: dose_mgy,               system: radiation,      group: radiation, source: generator, sim_mean: 0.285, sim_sd: 0.0158, person_sd: 0.0255, ar: -0.05, log: true, model: true}
+  - {name: lymphocytes_per_ul,     system: immune,         group: labs,      source: wokwi,     sim_mean: 2679, sim_sd: 271,  person_sd: 640,  log: true, interval_days: 7, model: false}
+  - {name: il6_pg_ml,              system: immune,         group: labs,      source: wokwi,     sim_mean: 3.7,  sim_sd: 1.11, person_sd: 0.78, log: true, interval_days: 7, model: false}
+  - {name: nk_activity_pct,        system: immune,         group: labs,      source: wokwi,     sim_mean: 100,  sim_sd: 10,   person_sd: 0,    log: true, interval_days: 7, model: false}
+  - {name: viral_pcr_positive,     system: immune,         group: labs,      source: wokwi,     sim_mean: 0,    sim_sd: 0,    person_sd: 0,    p: 0.05,   interval_days: 7, model: false}

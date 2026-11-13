@@ -110,10 +110,16 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         noise[0] = rng.normal(0, sd)
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
-        # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
-        # so it scales with each astronaut's or preset's level and never goes negative
-        x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
-        x = apply_effect(x, mean, scenario, name)
+        if "p" in s:  # binary yes/no signal (e.g. viral shedding): independent draw per day
+            x = (rng.random(n_days) < s["p"]).astype(float)
+            x = apply_effect(x, mean, scenario, name)
+        else:
+            # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
+            # so it scales with each astronaut's or preset's level and never goes negative
+            x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
+            x = apply_effect(x, mean, scenario, name)
+        if "interval_days" in s:  # measured only on sample days (e.g. weekly blood test)
+            x = np.where(np.arange(n_days) % s["interval_days"] == 0, x, np.nan)
         if name in scenario.drop_signals:
             x[scenario.onset_day:] = np.nan
         cols[name] = x

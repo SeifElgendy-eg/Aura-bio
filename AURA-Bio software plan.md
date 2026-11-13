@@ -17,6 +17,8 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 5.3 (new) | Which simulator values are calibrated from real data or papers, and which are still guesses |
 | 6.2 | CO₂ creep and sleep debt now relative to each astronaut's or cabin's own baseline; sleep debt follows Van Dongen et al. 2003; expected results updated |
 | 5.4 (new) | Real-data replay of ISS CO₂ and dose |
+| 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
+| 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
 
@@ -337,7 +339,7 @@ Priorities 1 to 4 are enough to state that real NASA data runs through the syste
 
 Beat-to-beat HRV in flight, reaction-test results and mood have no open astronaut data. They are simulated from the findings in the research doc and published studies (5.3), and labelled as simulated in the app and on the project page.
 
-Not built yet: simulator signals for immune and lab values, sIgA, vitamin D, glucose, body mass, calories and fluid (these block the immune-risk score, FR-15).
+Lab signals now simulated, one analyzer sample a week (rules and immune-risk score only, not model inputs): lymphocytes, IL-6, NK activity (% of own baseline) and viral shedding (yes/no). Not simulated, for lack of usable data: sIgA (rises in flight), vitamin D (falls), glucose, body mass (falls), calories (ISS crews eat 74–80% of recommended, already below the red line in 4.1) and fluid. The app should show these as "not monitored in this demo".
 
 ### 5.4 Real-data replay
 
@@ -362,6 +364,10 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | HRV (RMSSD) | 55 ms (guess) | 17 ms, multiplicative | 10 (guess) | 0.4 (guess) | Bellenger et al. 2022 |
 | Systolic BP | 118 mmHg (guess) | 9 mmHg | 6 (guess) | 0.4 (guess) | Ohasama study |
 | Reaction lapses, mood, exercise | guesses | guesses | guesses | 0.4 (guess) | none found yet |
+| Lymphocytes (weekly) | 2,679 /µL | 10.1% | 23.9% | — | Inspiration4; Coskun et al. 2020 |
+| IL-6 (weekly) | 3.7 pg/mL | 30% | 21% | — | Inspiration4; biological-variation studies (25–50%) |
+| NK activity (weekly) | 100% of own baseline | 10% (guess) | — | — | Bigley et al. 2019 for flight change |
+| Viral shedding (weekly) | 5% of samples positive (guess) | — | — | — | Mehta et al. 2017 for flight change |
 
 Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model.
 
@@ -388,6 +394,18 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Deconditioning | Resting heart rate up 12 bpm; exercise completion 70%; slow recovery | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
+
+### 6.3 Model performance
+
+Measured over 200 simulated astronauts per scenario (`model.train` prints this); onset on day 21; "any" = highest of the three windows, as the service reports.
+
+| Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
+| --- | --- | --- | --- |
+| Normal (false alarms) | 11% of astronauts over 20 days; 1.3% of normal days | — | 14-day: 2% |
+| Sleep debt | 90% | 6 | 2-day: 78%, day 6 |
+| Deconditioning | 99% | 6 | 14-day: 99%, day 6 |
+| CO₂ creep | 22% (barely above normal) | 7 | caught by the rules instead |
+| Sensor loss | 6% | — | handled by stale marking (FR-8) |
 
 ## 7. Delivery
 

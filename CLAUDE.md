@@ -24,7 +24,7 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 Python is pinned <3.14 (torch); uv picks 3.12. Torch comes from the CPU wheel index.
 If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv sync` · `uv run pytest -q`
-- `uv run python -m model.train` — trains the 3 models, prints score per scenario day and window
+- `uv run python -m model.train` — trains the 3 models, then reports detection rate, days to detection and false alarms over 200 simulated astronauts per scenario
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run uvicorn model.service:app --port 8001`
 - `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo

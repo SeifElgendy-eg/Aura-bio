@@ -1,6 +1,6 @@
 import numpy as np
 
-from contract.schema import Reading, model_signals
+from contract.schema import Reading, load_signals, model_signals
 from generator.sim import BASELINE_DAYS, SCENARIOS, make_profile, simulate, to_readings
 from model.dataset import normalise, windows
 
@@ -12,7 +12,9 @@ def _run(name, days=40):
 
 def test_readings_match_contract():
     msgs = to_readings("cm1", _run("normal", 3))
-    assert len(msgs) == 3 * len(model_signals())
+    daily = [s for s in load_signals() if "interval_days" not in s]
+    weekly = [s for s in load_signals() if "interval_days" in s]
+    assert len(msgs) == 3 * len(daily) + len(weekly)  # weekly labs only on day 0
     r = Reading(**msgs[0])
     assert r.topic().startswith("aura/cm1/")
 
@@ -61,3 +63,12 @@ def test_dose_follows_preset_and_differs_per_astronaut():
         assert np.std(levels) > 0.05 * p["dose_mgy_day"], preset   # each astronaut has own level
     rng = np.random.default_rng(2)
     assert (simulate(make_profile(rng, "mars_transit"), 60, rng)["dose_mgy"] > 0).all()
+
+
+def test_labs_weekly_and_plausible():
+    df = _run("normal", 60)
+    lab = df["lymphocytes_per_ul"]
+    assert lab.notna().sum() == 9 and lab.dropna().index.tolist()[:2] == [0, 7]
+    assert (lab.dropna() > 0).all() and (df["il6_pg_ml"].dropna() > 0).all()
+    assert set(df["viral_pcr_positive"].dropna().unique()) <= {0.0, 1.0}
+    assert all(s not in model_signals() for s in ["lymphocytes_per_ul", "il6_pg_ml"])

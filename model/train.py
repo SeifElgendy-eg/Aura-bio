@@ -38,6 +38,29 @@ def train_one(w: int, train_z: list, val_z: list, epochs: int, quantile: float) 
     return model, threshold
 
 
+def evaluate(models: dict, n: int = 200, days: int = 40) -> None:
+    """Per scenario, over n simulated astronauts: share flagged (score > 1) after onset, median day of
+    first flag, and false alarms per normal day before onset. 'any' = any window, as /score reports."""
+    onset = SCENARIOS["normal"].onset_day
+    print(f"{n} astronauts per scenario, onset day {onset}: flagged % / median day after onset / false alarms per day before onset")
+    for name in SCENARIOS:
+        scores = {w: [] for w in models}
+        for seed in range(1000, 1000 + n):
+            _, z = scenario_run(name, n_days=days, seed=seed)
+            for w, (m, thr) in models.items():
+                scores[w].append(errors(m, torch.from_numpy(windows(z, w)))[0].numpy() / thr)
+        scores["any"] = [np.max(per_w, axis=0) for per_w in zip(*(scores[w] for w in models))]
+        cells = []
+        for w, runs in scores.items():
+            runs = np.array(runs)
+            pre, post = runs[:, : onset - BASELINE_DAYS], runs[:, onset - BASELINE_DAYS :]
+            first = np.array([np.argmax(r > 1) if (r > 1).any() else np.nan for r in post])
+            hit = np.isfinite(first)
+            med = f"{np.nanmedian(first):4.1f}" if hit.any() else "   -"
+            cells.append(f"{w}{'d' if w != 'any' else ''}: {hit.mean() * 100:3.0f}% {med} {(pre > 1).mean() * 100:3.1f}%")
+        print(f"{name:15s} " + " | ".join(cells))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--crew", type=int, default=300)
@@ -53,14 +76,8 @@ def main() -> None:
         models[w] = train_one(w, train_z, val_z, a.epochs, a.quantile)
         save(artifact(w), models[w][0], models[w][1], sig)
 
-    onset = SCENARIOS["co2_creep"].onset_day
-    print(f"\nscore = error/threshold per day from day {BASELINE_DAYS} (onset day {onset} = '|'); >1 = anomalous")
-    for name in SCENARIOS:
-        _, z = scenario_run(name, seed=11)
-        for w, (m, thr) in models.items():
-            s = errors(m, torch.from_numpy(windows(z, w)))[0].numpy() / thr
-            cells = [("|" if BASELINE_DAYS + i == onset else "") + f"{v:.1f}" for i, v in enumerate(s)]
-            print(f"{name:15s}{w:3d}d " + " ".join(cells))
+    print()
+    evaluate(models)
 
 
 if __name__ == "__main__":
