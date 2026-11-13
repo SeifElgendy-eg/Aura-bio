@@ -409,11 +409,15 @@ Measured over 200 simulated astronauts per scenario (`model.train` prints this);
 
 | Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 11% of astronauts over 20 days; 1.3% of normal days | — | 14-day: 2% |
-| Sleep debt | 90% | 6 | 2-day: 78%, day 6 |
-| Deconditioning | 99% | 6 | 14-day: 99%, day 6 |
-| CO₂ creep | 22% (barely above normal) | 7 | caught by the rules instead |
-| Sensor loss | 6% | — | handled by stale marking (FR-8) |
+| Normal (false alarms) | 16% of astronauts over 20 days; 1.2% of normal days | — | 14-day: 1% |
+| Sleep debt | 78% | 6 | 2-day: 76% |
+| Deconditioning | 76% | 6 | 2-day: 76%; 14-day: 43% |
+| Solar particle event | 96% | same day | 2-day: 96% |
+| CO₂ creep | 28% (barely above normal) | 10 | caught by the rules instead |
+| Immune dysregulation | 16% (= normal) | — | lab values are not model inputs; caught by the rules |
+| Sensor loss | 10% | — | handled by stale marking (FR-8) |
+
+After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity: the plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
 
 ## 7. Delivery
 
