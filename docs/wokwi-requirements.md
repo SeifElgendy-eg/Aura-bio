@@ -1,6 +1,6 @@
 # Wokwi sensor layer: requirements
 
-**Status (2026-11-13):** phase 1 (a working circuit) is built in `firmware/` and checked in
+**Status (2026-11-14):** phase 1 (a working circuit) is built in `firmware/` and checked in
 Wokwi (section 4). **Next: phase 2** — make the Serial output follow the
 timeline the core service (backend) expects (section 5). Still no network: connecting to the backend
 is a separate piece of work, planned later.
@@ -117,7 +117,7 @@ stores and reads messages, so that connecting later means sending these same lin
 
 | # | Rule | Why the backend needs it |
 | --- | --- | --- |
-| 1 | **`ts` advances one simulated day per cycle**, starting at `2026-11-14T10:00:00Z` (day 1 = `2026-11-15T10:00:00Z`, …). Keep a day counter that goes up by one after each cycle. | The core keeps one reading per `crew_id` + `signal` + `ts`. With the phase 1 fixed `ts`, every message would replace the one before, and the crew member would never get a baseline or any bands. |
+| 1 | **`ts` advances one simulated day per cycle**, starting at `2026-11-14T10:00:00Z` (day 1 = `2026-11-15T10:00:00Z`, …). Keep a day counter that goes up by one after each cycle. **Keep the `Z`** at the end. | The core keeps one reading per `crew_id` + `signal` + `ts`. With the phase 1 fixed `ts`, every message would replace the one before, and the crew member would never get a baseline or any bands. A `ts` without a time zone (`Z`) is rejected (contract, plan 4.2). |
 | 2 | **One line per signal per simulated day**, one day every `SECONDS_PER_DAY` seconds (a `#define`, default 10, the same pace as the generator). | Baselines, trends and multi-day patterns all count in days. |
 | 3 | **Labs only every 7th day** (days 0, 7, 14, …): `lymphocytes_per_ul`, `il6_pg_ml`, `nk_activity_pct`, `viral_pcr_positive`. Other days print only HR, RMSSD and CO₂. | `signals.yaml` gives labs `interval_days: 7`. The lab baseline is the first 28 days and expects 4 samples, not 28. |
 | 4 | **Pulse `ON` off = no HR and RMSSD lines** that day (unchanged). The day counter still advances. | The core marks a signal `stale` once its last reading is more than 1.5 days old; a 0 would count as a real reading. |
