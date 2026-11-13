@@ -115,7 +115,10 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | `bp_systolic_mmhg` | day-to-day 9 mmHg; level 117.3, between people 13.4 (ages 7–98, wider than a crew) | Kikuya et al. 2008 and Ohasama reference values |
 | `rmssd_ms` level and between-person spread | level 55 kept as an estimate for nightly RMSSD (daytime ECG ~42); between people 15 ms from the 19–75 ms normal range | Nunan et al. 2010 |
 | Sleep debt: reaction lapses | +14 percentage points at day 14, curve t^0.78, extrapolated past day 14 | Van Dongen et al. 2003, *SLEEP* 26:117, 4 h group (Fig 1A, θ = 0.78) |
-| Sleep debt: mood | −1.7 at day 14, curve t^0.24 (sleepiness used as mood proxy) | Van Dongen et al. 2003, SSS ~1 point of 7, θ = 0.24 |
+| Sleep debt: mood | −0.8 at day 14, curve t^0.24: stress +7.7/100 at ≤4 h sleep vs 7–8 h, ISS astronauts in flight, converted to mood 0–10 | Jones et al. 2022, *SLEEP* 45:zsac006, Table 1; shape from Van Dongen 2003 |
+| Sleep levels | 6.5 h, efficiency 91.8% (ISS astronauts in flight, n=24); spreads from BIDSleep | Jones et al. 2022 |
+| Reaction lapses level | 7.5% of trials: rested PVT-B ≈ 4.7 lapses (≥355 ms) of ~62 stimuli; 3-min PVT-B tracks the 10-min PVT | Basner et al. 2011, *Acta Astronautica* 69:949, Fig 4 |
+| Mood level | 6.2 = 10 − stress/10; in-flight stress ~38/100 (rises +3.6 over a 6-month mission; lower on weekends) | Jones et al. 2022 |
 | CO2 creep size | +1.2 mmHg above cabin's own level | Plan 6.2; symptom link: Law et al. 2014, *J Occup Environ Med* 56:477 |
 | Preset dose levels and quality factors | Station 0.285 mGy/day (RadLab), quality factor 1.85 (derived: Zhang 2020's lunar/ISS ratio 2.6 → ~527 µSv/day ÷ 0.285); Moon 0.317 mGy/day, 4.3 (Zhang et al. 2020, *Science Advances*); Mars transit 0.48 mGy/day, 3.83 (Hassler et al. 2014; Zeitlin et al. 2013, *Science* 340:1080: 1.84 mSv/day); Mars surface 0.21 mGy/day, 3.2 (Hassler et al. 2014, *Science* 343: 0.67 mSv/day) | `contract/presets.yaml` |
 | Radiation limits | Career 600 mSv effective dose; 250 mSv per solar particle event | NASA-STD-3001 (NASA OCHMO radiation technical brief) |

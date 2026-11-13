@@ -48,11 +48,13 @@ SCENARIOS: dict[str, Scenario] = {
         "sleep_duration_h": Effect("add", -2.4, 5),  # same drop as plan 6.2 (7.2->4.8 h), from own baseline
         "sleep_efficiency_pct": Effect("add", -8, 5),
         "rmssd_ms": Effect("mul", -0.25, 5),
-        # Van Dongen et al. 2003 (SLEEP 26:117), 4 h time-in-bed group (~3.8 h sleep, matching
-        # 6.25 - 2.4 h): PVT lapses +~14 per 10-min test at day 14 (Fig 1A) ~ +14 percentage points
-        # of trials, curve t^0.78, extrapolated past day 14. Sleepiness ~1 point on the 7-point SSS
-        # (~1.7 on our 0-10 scale), curve t^0.24 -- sleepiness used as a proxy for mood.
-        "mood_score": Effect("add", -1.7, 14, power=0.24),
+        # Van Dongen et al. 2003 (SLEEP 26:117), 4 h time-in-bed group (~3.8 h sleep; our scenario
+        # sleeps ~4.1 h = 6.5 - 2.4): PVT lapses +~14 per 10-min test at day 14 (Fig 1A) ~ +14
+        # percentage points of trials, curve t^0.78, extrapolated past day 14. The 3-min PVT-B at a
+        # 355 ms threshold tracks the 10-min PVT (Basner et al. 2011), so the size carries over.
+        # Mood: -0.8 = stress +7.7/100 at <=4 h sleep vs 7-8 h in ISS astronauts in flight (Jones et al.
+        # 2022, Table 1), converted to the 0-10 mood scale; saturating shape t^0.24 from Van Dongen 2003.
+        "mood_score": Effect("add", -0.8, 14, power=0.24),
         "reaction_lapses_pct": Effect("add", 14, 14, power=0.78),
     }),
     # Exercise lapses -> bed-rest-like deconditioning. Sizes are the plan's PROPOSAL (not published):
@@ -143,6 +145,8 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
             # so it scales with each astronaut's or preset's level and never goes negative
             x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
             x = apply_effect(x, mean, scenario, name)
+        if "min" in s or "max" in s:  # hard limits of the scale (e.g. efficiency <= 100%)
+            x = np.clip(x, s.get("min", -np.inf), s.get("max", np.inf))
         if "interval_days" in s:  # measured only on sample days (e.g. weekly blood test)
             x = np.where(np.arange(n_days) % s["interval_days"] == 0, x, np.nan)
         if name in scenario.drop_signals:

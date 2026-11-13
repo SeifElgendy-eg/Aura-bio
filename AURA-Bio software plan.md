@@ -19,7 +19,8 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 5.4 (new) | Real-data replay of ISS CO₂ and dose |
 | 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
 | 6.2 | New immune dysregulation and solar particle event scenarios |
-| 8.6 | DOIs added |
+| 8.6 | DOIs added; Jones 2022 and Basner 2011 added |
+| 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
@@ -359,13 +360,15 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | Signal | Level | Day-to-day spread | Person-to-person spread | Day-to-day persistence | Source |
 | --- | --- | --- | --- | --- | --- |
 | Resting heart rate | 60.1 bpm | 3.6 | 5.3 | 0.25 | BIDSleep |
-| Sleep duration | 6.25 h | 1.0 | 0.7 | −0.20 | BIDSleep (ISS crews average 6.09 h, Barger et al. 2014) |
-| Sleep efficiency | 88.9% | 5.8 | 4.7 | −0.27 | BIDSleep |
+| Sleep duration | 6.5 h | 1.0 | 0.7 | −0.20 | Level: ISS astronauts (Jones et al. 2022); spreads: BIDSleep |
+| Sleep efficiency | 91.8% (max 100) | 5.8 | 4.7 | −0.27 | Level: Jones et al. 2022; spreads: BIDSleep |
 | Cabin CO₂ | 2.21 mmHg | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
 | HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (guess) | Bellenger et al. 2022; Nunan et al. 2010 |
 | Systolic BP | 117 mmHg | 9 mmHg | 13.4 (whole population, ages 7–98: wider than a screened crew) | 0.4 (guess) | Ohasama study |
-| Reaction lapses, mood, exercise | guesses | guesses | guesses | 0.4 (guess) | none found yet |
+| Reaction lapses | 7.5% of trials | guess | guess | 0.4 (guess) | Basner et al. 2011 (rested 3-min PVT-B) |
+| Mood (0–10) | 6.2 | guess | guess | 0.4 (guess) | Jones et al. 2022 (in-flight stress ~38/100, converted) |
+| Exercise completion | 98% (guess) | guess | guess | 0.4 (guess) | none; ISS crews log ~600 min/week |
 | Lymphocytes (weekly) | 2,679 /µL | 10.1% | 23.9% | — | Inspiration4; Coskun et al. 2020 |
 | IL-6 (weekly) | 3.7 pg/mL | 30% | 21% | — | Inspiration4; biological-variation studies (25–50%) |
 | NK activity (weekly) | 100% of own baseline | 10% (guess) | — | — | Bigley et al. 2019 for flight change |
@@ -392,7 +395,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Scenario | Input | Expected result |
 | --- | --- | --- |
 | CO₂ creep | CO₂ rises 1.2 mmHg above the cabin's own level over 8 days; headache logged; reaction lapses up 25% | Environment amber then red; pattern "CO₂-associated performance impairment"; response: check ventilation. Caught by the rules, not by the anomaly model (score peaks at 0.9, below the alarm line of 1) |
-| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down 1.7 points, mostly in the first days | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
+| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down 0.8 points (from astronaut stress ratings, Jones et al. 2022), mostly in the first days | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
 | Deconditioning (exercise lapses) | Exercise completion drops to 70%; resting heart rate rises 12 bpm over 21 days; HRV down 10%. Sizes are this plan's proposal: on the ISS, resting HR stays flat when crew exercise (Hughson et al.); bed rest without exercise raises it | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
@@ -488,4 +491,7 @@ DOIs marked * were taken from memory and should be checked when the paper is ope
 | Exercise on the ISS, *npj Microgravity* 2023 | 10.1038/s41526-023-00256-5 | ISS crews log ~600 min of exercise a week (450–720) |
 | Song et al. 2025, *IEEE TBME*; BIDSleep dataset (ODC-By) | — | Wearable heart rate and sleep; cite when used |
 
-Papers still wanted (would replace guesses): Jones, Basner, Dinges et al. 2022, *SLEEP* 45(3), 10.1093/sleep/zsac006 (normal lapse and stress levels in ISS crew); Basner, Mollicone, Dinges 2011, *Acta Astronautica*, 10.1016/j.actaastro.2011.07.015 * (rested lapse rate on the 3-minute test).
+| Jones, Basner, Mollicone, Mott, Dinges 2022, *SLEEP* 45:zsac006 | 10.1093/sleep/zsac006 | ISS astronauts: sleep 6.5 h, efficiency 91.8%; stress ~38/100 in flight; stress +7.7 at ≤4 h sleep |
+| Basner, Mollicone, Dinges 2011, *Acta Astronautica* 69:949 | 10.1016/j.actaastro.2011.07.015 | Rested 3-min PVT-B ≈ 7.5% lapses (≥355 ms); tracks the 10-min PVT |
+
+Still wanted: the Jones 2022 supplement (astronaut lapse levels, Fig S5A).

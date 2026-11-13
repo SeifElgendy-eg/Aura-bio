@@ -1,3 +1,4 @@
+import pandas as pd
 import numpy as np
 
 from contract.schema import Reading, load_signals, model_signals
@@ -101,3 +102,10 @@ def test_solar_event_is_one_day_spike():
         ratios.append(d[sc.onset_day] / normal)
         assert abs(d[sc.onset_day + 1] / normal - 1) < 0.25                # back to normal next day
     assert abs(np.mean(ratios) - (1 + 0.146 / 0.285)) < 0.05               # +51% on the event day
+
+
+def test_scale_limits_hold():
+    rng = np.random.default_rng(9)
+    df = pd.concat([simulate(make_profile(rng), 60, rng, SCENARIOS["sleep_debt"]) for _ in range(200)])
+    assert df["sleep_efficiency_pct"].max() <= 100 and df["reaction_lapses_pct"].min() >= 0
+    assert df["mood_score"].between(0, 10).all()
