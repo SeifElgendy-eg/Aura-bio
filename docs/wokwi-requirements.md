@@ -1,7 +1,7 @@
 # Wokwi sensor layer: requirements
 
-**Status (2026-11-13):** phase 1 (a working circuit) is built in `firmware/` and mostly checked in
-Wokwi (section 4); three manual checks remain. **Next: phase 2** — make the Serial output follow the
+**Status (2026-11-13):** phase 1 (a working circuit) is built in `firmware/` and checked in
+Wokwi (section 4). **Next: phase 2** — make the Serial output follow the
 timeline the core service (backend) expects (section 5). Still no network: connecting to the backend
 is a separate piece of work, planned later.
 
@@ -88,13 +88,14 @@ Checked 2026-11-13 in the Wokwi VS Code extension; Serial output run through
 - [x] The circuit runs in Wokwi (VS Code extension) with the 3 chips wired as in section 2
 - [x] With sliders at their defaults, Serial shows 7 lines per cycle with values within ~1% of the
       defaults (HR 60.0, RMSSD 55.0, CO₂ 2.20, lymphocytes 2680 for 2679, IL-6 3.7, NK 100.0, viral 0)
-- [ ] Moving each slider changes only its own value, across the full range — **done for heart rate
-      only** (60 → 66 → 76.2, nothing else moved); CO₂, RMSSD and the analyzer sliders still to try,
-      including both ends of each range
-- [ ] Pulse `ON` off → the two pulse lines disappear; on → they come back — **not tried yet**
-- [ ] Viral switch flips the value between 0 and 1 — **not tried yet**
+- [x] Moving each slider changes only its own value — seen for all 6: heart rate 60 → 95.5, RMSSD
+      55 → 96.5, CO₂ 0.32 to 8.40, lymphocytes 2509 to 4089, IL-6 3.7 → 18.6, NK 58 to 144.5. The exact
+      ends of each range were not hit
+- [x] Pulse `ON` off → the two pulse lines disappear; on → they come back (cycles drop from 7 lines
+      to 5, then return to 7)
+- [x] Viral switch flips the value from 0 to 1 (back to 0 not tried)
 - [x] Every printed line validates in Python: `Reading(**json.loads(line))` from `contract/schema.py`
-      (210/210 lines)
+      (210/210 lines of the first run; every distinct line of the second run)
 - [x] Project files committed under `firmware/` (`diagram.json`, `wokwi.toml`, sketch, chips, validator)
 
 Findings from the run:
@@ -156,7 +157,6 @@ Example, days 6 to 8 (day 7 is a lab day):
 - [ ] Pulse `ON` off: HR and RMSSD lines stop, the day still advances, the other lines continue
 - [ ] `crew_id` is `cm2`; changing `SECONDS_PER_DAY` changes the pace and nothing else
 - [ ] A capture of at least 30 days passes `firmware/tools/validate_serial.py`
-- [ ] The three open phase 1 checks in section 4 are done
 
 ## Later (separate work, not now)
 
