@@ -104,3 +104,17 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | `eda_co2_daily.csv` | EDA | Daily CO2 in mmHg after dropping <1000/>10000 ppm and ≥1 h flat runs. Results identical for flat-run 30 min/1 h/2 h and low cut 800/1000/1200 ppm. |
 | `eda_co2_calibration.csv` | EDA | Mean, within-mission day-to-day SD, between-mission SD, lag-1 persistence. **Written into `contract/signals.yaml`.** |
 | `inspiration4_labs.csv`, `inspiration4_change.csv` | Inspiration4 | All lab values, tidy; % change R+1 vs pre-flight mean. **Definition pending team review.** |
+
+## Published values used in the simulator
+
+| Signal / scenario | Value | Source |
+| --- | --- | --- |
+| `rmssd_ms` day-to-day spread | 17 ms (lnRMSSD CV ~8%), simulated in log space | Bellenger et al. 2022, *Sensors* 22:6723 |
+| `bp_systolic_mmhg` day-to-day spread | 9 mmHg | Kikuya et al. 2008, Ohasama study, *Hypertension* |
+| Sleep debt: reaction lapses | +14 percentage points at day 14, curve t^0.78, extrapolated past day 14 | Van Dongen et al. 2003, *SLEEP* 26:117, 4 h group (Fig 1A, θ = 0.78) |
+| Sleep debt: mood | −1.7 at day 14, curve t^0.24 (sleepiness used as mood proxy) | Van Dongen et al. 2003, SSS ~1 point of 7, θ = 0.24 |
+| CO2 creep size | +1.2 mmHg above cabin's own level | Plan 6.2; symptom link: Law et al. 2014, *J Occup Environ Med* 56:477 |
+| ISS sleep reference | 6.09 h/night on ISS (our BIDSleep calibration: 6.25 h) | Barger et al. 2014, *Lancet Neurology* |
+
+Conversion note: Van Dongen counts lapses (RT > 500 ms) per 10-min PVT (~100 stimuli), so +14 lapses
+≈ +14 percentage points. The app's 90-s test is shorter and less sensitive; treat this as approximate.

@@ -18,10 +18,13 @@ BASELINE_DAYS = 14
 @dataclass
 class Effect:
     """Ramp a signal from onset over ramp_days. mode 'add': +value at full effect; 'mul': *(1+value);
-    'set': move toward the absolute value."""
+    'set': move toward the absolute value. Default ramp is linear, then flat after ramp_days.
+    With power set, the ramp is (days since onset / ramp_days) ** power and keeps growing past
+    ramp_days (Van Dongen et al. 2003 fit y = beta * t^theta)."""
     mode: str
     value: float
     ramp_days: int = 5
+    power: float | None = None
 
 
 @dataclass
@@ -43,10 +46,12 @@ SCENARIOS: dict[str, Scenario] = {
         "sleep_duration_h": Effect("add", -2.4, 5),  # same drop as plan 6.2 (7.2->4.8 h), from own baseline
         "sleep_efficiency_pct": Effect("add", -8, 5),
         "rmssd_ms": Effect("mul", -0.25, 5),
-        # Van Dongen 2003: lapses keep rising across 14 days of restriction; sleepiness/mood
-        # responds in the first days, then plateaus. Sizes still the earlier guesses (awaiting review).
-        "mood_score": Effect("add", -2.0, 3),
-        "reaction_lapses_pct": Effect("mul", 0.2, 14),
+        # Van Dongen et al. 2003 (SLEEP 26:117), 4 h time-in-bed group (~3.8 h sleep, matching
+        # 6.25 - 2.4 h): PVT lapses +~14 per 10-min test at day 14 (Fig 1A) ~ +14 percentage points
+        # of trials, curve t^0.78, extrapolated past day 14. Sleepiness ~1 point on the 7-point SSS
+        # (~1.7 on our 0-10 scale), curve t^0.24 -- sleepiness used as a proxy for mood.
+        "mood_score": Effect("add", -1.7, 14, power=0.24),
+        "reaction_lapses_pct": Effect("add", 14, 14, power=0.78),
     }),
     "deconditioning": Scenario("deconditioning", effects={
         "resting_hr_bpm": Effect("add", 12, 7),
@@ -74,10 +79,12 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         noise[0] = rng.normal(0, sd)
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
-        x = mean + noise
+        # log: true -> variation is multiplicative (sd/mean in log space); never negative
+        x = mean * np.exp(noise / mean) if s.get("log") else mean + noise
         eff = scenario.effects.get(name)
         if eff:
-            ramp = np.clip((np.arange(n_days) - scenario.onset_day + 1) / eff.ramp_days, 0, 1)
+            t = np.clip(np.arange(n_days) - scenario.onset_day + 1, 0, None) / eff.ramp_days
+            ramp = t ** eff.power if eff.power else np.clip(t, 0, 1)
             if eff.mode == "add":
                 x = x + ramp * eff.value
             elif eff.mode == "mul":

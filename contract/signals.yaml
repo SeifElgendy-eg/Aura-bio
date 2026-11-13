@@ -5,13 +5,13 @@
 # (data/processed/bidsleep_calibration.csv; resting HR = nocturnal, lowest 30-min mean in sleep).
 # cabin_co2_mmhg: calibrated from OSDR EDA ISS CO2 (data/processed/eda_co2_calibration.csv; person_sd
 # = spread between missions/cabins). ar = day-to-day persistence (lag-1), measured; default 0.4 when absent.
-# rmssd_ms sim_sd 17: lnRMSSD day-to-day CV ~8% (middle of 3-13%, Bellenger et al. 2022, Sensors).
+# rmssd_ms sim_sd 17 (log: true -> simulated in log space, sd_ln = 17/55): lnRMSSD day-to-day CV ~8% (middle of 3-13%, Bellenger et al. 2022, Sensors).
 # bp_systolic_mmhg sim_sd 9: home SBP within-person day-to-day SD (Ohasama study, Kikuya et al. 2008).
 # All other sim_* values (and the HRV/BP means and person_sd) are still guesses awaiting review.
 # `model: true` signals form the autoencoder input vector, IN THIS ORDER.
 signals:
   - {name: resting_hr_bpm,         system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 60.1, sim_sd: 3.64, person_sd: 5.28, ar: 0.25,  model: true}
-  - {name: rmssd_ms,               system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 55,   sim_sd: 17,   person_sd: 10,   model: true}
+  - {name: rmssd_ms,               system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 55,   sim_sd: 17,   person_sd: 10,  log: true,  model: true}
   - {name: bp_systolic_mmhg,       system: cardiovascular, group: vitals,    source: generator, sim_mean: 118,  sim_sd: 9,    person_sd: 6,    model: true}
   - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 6.25, sim_sd: 1.01, person_sd: 0.73, ar: -0.20,  model: true}
   - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 88.9, sim_sd: 5.76, person_sd: 4.71, ar: -0.27,  model: true}
