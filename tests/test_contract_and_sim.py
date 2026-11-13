@@ -155,3 +155,24 @@ def test_scenarios_never_produce_impossible_values():
                     assert (col > 0).all(), (sc.name, s["name"])
                 if "p" in s:
                     assert col.isin([0.0, 1.0]).all(), (sc.name, s["name"])
+
+
+def test_mood_follows_last_nights_sleep():
+    """Within-person effect of last night's sleep on mood reproduces Jones 2022 Table 1 (vs 7-8 h),
+    and the average mood stays at its stated level."""
+    rng = np.random.default_rng(11)
+    d = pd.concat([simulate(make_profile(rng), 60, rng).assign(p=i) for i in range(400)])
+    bins = pd.get_dummies(pd.cut(d.sleep_duration_h, [0, 4, 5, 6, 7, 8, 9, 24]), dtype=float)
+    X = bins.drop(columns=bins.columns[4])  # 7-8 h is the reference, as in the paper
+    within = lambda v: v - v.groupby(d.p).transform("mean")  # person fixed effects
+    beta = np.linalg.lstsq(within(X).to_numpy(), within(d.mood_score).to_numpy(), rcond=None)[0]
+    assert np.allclose(beta, [-0.77, -0.38, -0.26, -0.05, 0.11, 0.05], atol=0.06), beta.round(2)
+    # same astronauts without the link: the average mood must not move
+    mood = {x["name"]: x for x in load_signals()}["mood_score"]
+    f = mood.pop("follows")
+    try:
+        rng = np.random.default_rng(11)
+        plain = pd.concat([simulate(make_profile(rng), 60, rng) for _ in range(400)])
+    finally:
+        mood["follows"] = f
+    assert abs(d.mood_score.mean() - plain.mood_score.mean()) < 0.02
