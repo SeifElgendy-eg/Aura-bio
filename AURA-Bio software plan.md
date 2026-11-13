@@ -24,6 +24,7 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 5.3, 6.3 | Sleep duration and efficiency now vary together on normal days (r 0.59, BIDSleep); model re-measured |
+| 5.3, 6.2 | Mood follows last night's sleep (Jones 2022 Table 1); sleep-debt mood drop now comes from that link (~−0.4) instead of a separate −0.8 |
 | 5.3, 6.2 | Simulator validated against all real datasets; spreads matched by simulation; immune response size varies per astronaut (spread 78%) |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
@@ -391,7 +392,7 @@ Persistence and the night-to-night values for sleep and heart rate come from onl
 | IL-6 (4 crew) | 1.04 vs 1.15 | 0.76 vs 0.77 | 100% |
 | Lymphocytes (4 crew) | 1,333 vs 280 | 899 vs 656 | 91.7% |
 
-Same-night link of sleep duration and efficiency (within each person): real 0.59, simulated 0.60–0.62. Other signals are not linked: resting HR shows no reliable link to sleep in the data (r −0.09).
+Same-night link of sleep duration and efficiency (within each person): real 0.59, simulated 0.60–0.62. Mood follows last night's sleep on every day, using Jones et al. 2022 Table 1 as published (≤4 h −0.77 … 6–7 h −0.05 vs 7–8 h); a test checks the within-person effect reproduces those values. Other signals are not linked: resting HR shows no reliable link to sleep in the data (r −0.09).
 
 Sleep levels differ on purpose (ISS values, not BIDSleep's ground nights). Lymphocyte spreads stay on Coskun et al. 2020: the 4 Inspiration4 crew were sampled months apart, which adds slow change a weekly sample would not show. Flight change (day after landing vs pre-flight): lymphocytes −26.8% real vs −26.5% simulated, IL-6 +90% vs +98%. All 4 crew fall inside the simulated 95% range, because each simulated astronaut gets their own response size (spread 78% of the average, as among the Inspiration4 crew: lymphocytes −48% to +2%).
 
@@ -414,7 +415,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Scenario | Input | Expected result |
 | --- | --- | --- |
 | CO₂ creep | CO₂ rises 1.2 mmHg above the cabin's own level over 8 days; headache logged; reaction lapses up 25% | Environment amber then red; pattern "CO₂-associated performance impairment"; response: check ventilation. Caught by the rules, not by the anomaly model (score peaks at 0.9, below the alarm line of 1) |
-| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down 0.8 points (from astronaut stress ratings, Jones et al. 2022), mostly in the first days | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
+| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down about 0.4 points, through the everyday sleep–mood link (astronaut stress ratings by sleep length, Jones et al. 2022) | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
 | Deconditioning (exercise lapses) | Exercise completion drops to 70%; resting heart rate rises 12 bpm over 21 days; HRV down 10%. Sizes are this plan's proposal: on the ISS, resting HR stays flat when crew exercise (Hughson et al.); bed rest without exercise raises it | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
@@ -427,15 +428,15 @@ Measured over 200 simulated astronauts per scenario (`model.train` prints this);
 
 | Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 22% of astronauts over 20 days; 1.4% of normal days | — | 14-day: 1% |
-| Sleep debt | 79% | 5 | 2-day: 78% |
-| Deconditioning | 86% | 6 | 2-day: 82%; 7-day: 66% |
+| Normal (false alarms) | 19% of astronauts over 20 days; 1.5% of normal days | — | 14-day: 1% |
+| Sleep debt | 64% | 6 | 2-day: 61% |
+| Deconditioning | 84% | 6 | 2-day: 82%; 7-day: 62% |
 | Solar particle event | 97% | same day | 2-day: 97% |
-| CO₂ creep | 30% (barely above normal) | 9 | caught by the rules instead |
+| CO₂ creep | 32% (barely above normal) | 9 | caught by the rules instead |
 | Immune dysregulation | 18% (= normal) | — | lab values are not model inputs; caught by the rules |
 | Sensor loss | 14% | — | handled by stale marking (FR-8) |
 
-After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%. Adding the real sleep duration–efficiency link (5.3) and retraining moved them to 79% and 86%, with false alarms 1.1% → 1.4% of days; deconditioning does not touch sleep, so most of that swing is run-to-run variation from retraining on new random data, not the link. Treat single numbers as ±10–20 points. The plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
+After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%. Adding the real sleep duration–efficiency link (5.3) and retraining moved them to 79% and 86%, with false alarms 1.1% → 1.4% of days; deconditioning does not touch sleep, so most of that swing is run-to-run variation from retraining on new random data, not the link. Treat single numbers as ±10–20 points. Linking mood to sleep (and dropping the double-counted −0.8 sleep-debt mood effect) then took sleep debt to 64% while deconditioning stayed at 84%, so that drop is real: sleep debt's mood change is now smaller and mood dips after short nights are normal. The plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
 
 ## 7. Delivery
 

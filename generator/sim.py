@@ -53,9 +53,8 @@ SCENARIOS: dict[str, Scenario] = {
         # sleeps ~4.1 h = 6.5 - 2.4): PVT lapses +~14 per 10-min test at day 14 (Fig 1A) ~ +14
         # percentage points of trials, curve t^0.78, extrapolated past day 14. The 3-min PVT-B at a
         # 355 ms threshold tracks the 10-min PVT (Basner et al. 2011), so the size carries over.
-        # Mood: -0.8 = stress +7.7/100 at <=4 h sleep vs 7-8 h in ISS astronauts in flight (Jones et al.
-        # 2022, Table 1), converted to the 0-10 mood scale; saturating shape t^0.24 from Van Dongen 2003.
-        "mood_score": Effect("add", -0.8, 14, power=0.24),
+        # Mood has no effect of its own here: it follows last night's sleep (signals.yaml `follows`, Jones
+        # et al. 2022 Table 1), which gives about -0.4 at ~4.1 h vs the astronaut's usual ~6.5 h.
         "reaction_lapses_pct": Effect("add", 14, 14, power=0.78),
     }),
     # Exercise lapses -> bed-rest-like deconditioning. Sizes are the plan's PROPOSAL (not published):
@@ -189,6 +188,18 @@ def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str,
     return x + ramp * (eff.value - mean)  # "set"
 
 
+def follow_change(f: dict, v):
+    """`follows` change for value(s) v: the published bin values, as steps (bins split at f["edges"])."""
+    return np.asarray(f["change"])[np.searchsorted(f["edges"], v)]
+
+
+def usual_change(f: dict, usual: float, sd: float) -> float:
+    """Average change over this astronaut's normal day-to-day range, so the link moves values around
+    the astronaut's own level without shifting it (short nights hurt more than long nights help)."""
+    z, w = np.polynomial.hermite_e.hermegauss(40)
+    return float((w / w.sum() * follow_change(f, usual + sd * z)).sum())
+
+
 def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
              scenario: Scenario | None = None) -> pd.DataFrame:
     """Daily values, one row per day, one column per signal (NaN where a sensor dropped out)."""
@@ -196,6 +207,7 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
     # this astronaut's response size, shared by all signals in the scenario
     scale = 1 + rng.normal(0, scenario.response_sd) if scenario.response_sd else 1.0
     cols, shocks = {}, {}
+    by_name = {s["name"]: s for s in load_signals()}
     for s in load_signals():
         name, mean, sd, ar = s["name"], profile[s["name"]], s["sim_sd"], s.get("ar", 0.4)
         z = rng.standard_normal(n_days + 1)  # this signal's daily shocks (last one starts the series)
@@ -224,6 +236,8 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
                 x = from_logit(to_logit(mean, s) + noise * logit_slope(s), s)
             else:
                 x = mean + noise
+            for other, f in s.get("follows", {}).items():  # day-to-day dependence on an earlier signal
+                x = x + follow_change(f, cols[other]) - usual_change(f, profile[other], by_name[other]["sim_sd"])
             x = apply_effect(x, mean, scenario, name, scale)
         if "min" in s or "max" in s:  # hard limits of the scale (e.g. efficiency <= 100%)
             x = np.clip(x, s.get("min", -np.inf), s.get("max", np.inf))

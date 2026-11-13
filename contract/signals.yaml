@@ -6,6 +6,8 @@
 #   on it); logit: [lo, hi] = varies on the logit scale between both ends (never sits on either);
 #   corr: {other: r} = day-to-day shocks linked to an EARLIER signal in this list (correlation r of the shocks;
 #     the values' correlation comes out a bit lower after shapes and limits, see data/validate.py links());
+#   follows: {other: {edges: [...], change: [...]}} = today's value moves by the change for the bin (split at edges)
+#     that other's value today falls in, minus the change at this astronaut's usual value; other must come EARLIER;
 #   p = chance per sample for yes/no signals; interval_days = sampled every N days;
 #   min/max = hard limits of the scale (values clipped). `model: true` signals form the autoencoder input, IN THIS ORDER.
 # Every value is SOURCED, ESTIMATED (derived, rough) or an ASSUMPTION (no published data). Full list: data/SOURCES.md.
@@ -30,6 +32,9 @@
 #   nk_activity_pct: 14% per sample (inter-test CV of natural killing, 123 healthy adults, TINKL study).
 #   viral_pcr_positive: 3% of samples in healthy controls (Mehta et al. 2017).
 #   mood_score: level 6.2 = 10 - stress/10, in-flight stress ~38/100 (Jones et al. 2022).
+#     follows sleep_duration_h: Jones 2022 Table 1, stress by last night's sleep vs 7-8 h (ISS astronauts in flight),
+#     /10 for mood, used as published bins: <=4 h -0.77, 4-5 -0.38, 5-6 -0.26, 6-7 -0.05, 8-9 +0.11, >9 +0.05.
+#     Relative to the astronaut's usual sleep, so mood levels stay as validated.
 # MATCHED BY SIMULATION (data/validate.py match_spreads): sim_sd and person_sd of resting_hr_bpm, sleep_duration_h,
 #   sleep_efficiency_pct, cabin_co2_mmhg, and person_sd of il6_pg_ml are tuned so that short simulated runs (as long as
 #   the real ones: ~5 nights per BIDSleep person, ~42 days per ISS mission, 3 Inspiration4 samples) reproduce the real
@@ -56,7 +61,7 @@ signals:
   - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 6.5,  sim_sd: 0.98, person_sd: 0.64, ar: -0.20, min: 0, max: 24,  model: true}
   - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 91.8, sim_sd: 4.89, person_sd: 4.39, ar: -0.27, corr: {sleep_duration_h: 0.74}, log_from: 100, min: 0, max: 100,  model: true}
   - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 5.4,  person_sd: 6.5,  log: true, min: 0, max: 100, model: true}
-  - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 6.2,  sim_sd: 0.6,  person_sd: 1.7,  logit: [0, 10], min: 0, max: 10, model: true}
+  - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 6.2,  sim_sd: 0.6,  person_sd: 1.7,  logit: [0, 10], follows: {sleep_duration_h: {edges: [4, 5, 6, 7, 8, 9], change: [-0.77, -0.38, -0.26, -0.05, 0, 0.11, 0.05]}}, min: 0, max: 10, model: true}
   - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.56, person_sd: 0.39, ar: 0.87, min: 0.76,  model: true}
   - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    log_from: 100, min: 0, max: 100, model: true}
   - {name: dose_mgy,               system: radiation,      group: radiation, source: generator, sim_mean: 0.285, sim_sd: 0.0158, person_sd: 0.0255, ar: -0.05, log: true, model: true}
