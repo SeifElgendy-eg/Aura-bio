@@ -1,8 +1,9 @@
 # Wokwi sensor layer: requirements
 
-**Current focus: phase 1 — a working circuit.** An ESP32 and three custom chips, wired up, with the
-sketch reading every value correctly and printing it in the message format. No network, no timeline, no
-noise model yet; those are phase 2 (bottom of this page).
+**Status (2026-11-13):** phase 1 (a working circuit) is built in `firmware/` and mostly checked in
+Wokwi (section 4); three manual checks remain. **Next: phase 2** — make the Serial output follow the
+timeline the core service (backend) expects (section 5). Still no network: connecting to the backend
+is a separate piece of work, planned later.
 
 Numbers come from `contract/signals.yaml` (calibrated from real data, see `data/SOURCES.md`).
 
@@ -25,7 +26,7 @@ Phase 1 keeps it simple: **each value is an analog voltage (0–3.3 V)** that th
 slider (`pin_dac_write`), and the ESP32 reads with `analogRead` (12-bit, 0–4095). Viral shedding and
 the pulse sensor's on/off are digital pins.
 
-Use **ADC1 pins only** (GPIO 32–39): ADC2 pins stop working on the ESP32 once WiFi is on, which phase 2
+Use **ADC1 pins only** (GPIO 32–39): ADC2 pins stop working on the ESP32 once WiFi is on, which the later connection
 needs.
 
 | Chip | Output pin → ESP32 pin | Signal | Value at 0 V | Value at 3.3 V | Slider default |
@@ -77,31 +78,91 @@ Every 2 seconds (stand-in for "one simulated day" until phase 2):
   lymphocytes; 0 or 1 for viral).
 - `source` is always `"wokwi"`, `provenance` always `"simulated"`.
 
-Printing the exact message now means phase 2 only has to send the same lines over MQTT.
+Printing the exact message now means the later connection work only has to send the same lines.
 
-## 4. Done when
+## 4. Done when (phase 1)
 
-- [ ] The circuit runs in Wokwi (VS Code extension or wokwi.com) with the 3 chips wired as in section 2
-- [ ] With sliders at their defaults, Serial shows 7 lines per cycle with values within ~1% of the defaults
-- [ ] Moving each slider changes only its own value, across the full range
-- [ ] Pulse `ON` off → the two pulse lines disappear; on → they come back
-- [ ] Viral switch flips the value between 0 and 1
-- [ ] Every printed line validates in Python: `Reading(**json.loads(line))` from `contract/schema.py`
-- [ ] Project files committed under `firmware/` (`diagram.json`, `wokwi.toml`, sketch, chips)
+Checked 2026-11-13 in the Wokwi VS Code extension; Serial output run through
+`firmware/tools/validate_serial.py`.
 
-## Phase 2 (later, not now)
+- [x] The circuit runs in Wokwi (VS Code extension) with the 3 chips wired as in section 2
+- [x] With sliders at their defaults, Serial shows 7 lines per cycle with values within ~1% of the
+      defaults (HR 60.0, RMSSD 55.0, CO₂ 2.20, lymphocytes 2680 for 2679, IL-6 3.7, NK 100.0, viral 0)
+- [ ] Moving each slider changes only its own value, across the full range — **done for heart rate
+      only** (60 → 66 → 76.2, nothing else moved); CO₂, RMSSD and the analyzer sliders still to try,
+      including both ends of each range
+- [ ] Pulse `ON` off → the two pulse lines disappear; on → they come back — **not tried yet**
+- [ ] Viral switch flips the value between 0 and 1 — **not tried yet**
+- [x] Every printed line validates in Python: `Reading(**json.loads(line))` from `contract/schema.py`
+      (210/210 lines)
+- [x] Project files committed under `firmware/` (`diagram.json`, `wokwi.toml`, sketch, chips, validator)
 
-Kept here so nothing is lost; to be detailed when phase 1 works.
+Findings from the run:
 
-- **MQTT:** publish each line to `aura/<crew_id>/<group>` (`vitals`, `cabin`, `labs`). Contract asks for
-  QoS 1, but the usual Arduino library PubSubClient publishes QoS 0 only: pick another library or agree
-  on QoS 0. Wokwi WiFi is `Wokwi-GUEST`; the local broker needs the Wokwi private gateway; public broker
-  as fallback.
-- **Timeline:** one message per *simulated day* (default 10 s per day), `ts` advancing from
-  `2026-11-14T10:00:00Z`; labs only on days 0, 7, 14, …. Team decision: own day counter or a shared tick
-  from the generator.
-- **Realistic values:** personal level + day-to-day noise around the slider setting, using the spreads
-  and persistence in `contract/signals.yaml` (e.g. CO₂ drifts slowly: persistence 0.87).
-- **Scenarios:** sliders only, or scripted runs matching the generator's (team decision).
-- **Living with the generator:** each signal for a given astronaut must come from one publisher only;
-  the generator needs a `--skip-signals` option for that (data side, not built yet).
+- **ADC reference:** Wokwi's ESP32 ADC reads 0–5 V, so `ADC_VREF 5.0` in `main.cpp` is right for the
+  simulator (defaults read back exactly). Real ESP32 hardware needs 3.3.
+- **Precision:** one ADC step is about 2.2 /µL for lymphocytes and 0.04 bpm for heart rate, well under
+  each signal's day-to-day spread.
+- **Not checked:** the committed `chips/*.wasm` were not rebuilt from the `.c` files (no `wokwi-cli`
+  here); rebuild them after any chip change.
+
+## 5. Phase 2: output the backend can use
+
+Still Serial only. The message format from phase 1 is already right; what changes is **when** lines are
+printed and **what `ts` they carry**. Each rule below exists because of how the core service on `main`
+stores and reads messages, so that connecting later means sending these same lines unchanged.
+
+### 5.1 Rules
+
+| # | Rule | Why the backend needs it |
+| --- | --- | --- |
+| 1 | **`ts` advances one simulated day per cycle**, starting at `2026-11-14T10:00:00Z` (day 1 = `2026-11-15T10:00:00Z`, …). Keep a day counter that goes up by one after each cycle. | The core keeps one reading per `crew_id` + `signal` + `ts`. With the phase 1 fixed `ts`, every message would replace the one before, and the crew member would never get a baseline or any bands. |
+| 2 | **One line per signal per simulated day**, one day every `SECONDS_PER_DAY` seconds (a `#define`, default 10, the same pace as the generator). | Baselines, trends and multi-day patterns all count in days. |
+| 3 | **Labs only every 7th day** (days 0, 7, 14, …): `lymphocytes_per_ul`, `il6_pg_ml`, `nk_activity_pct`, `viral_pcr_positive`. Other days print only HR, RMSSD and CO₂. | `signals.yaml` gives labs `interval_days: 7`. The lab baseline is the first 28 days and expects 4 samples, not 28. |
+| 4 | **Pulse `ON` off = no HR and RMSSD lines** that day (unchanged). The day counter still advances. | The core marks a signal `stale` once its last reading is more than 1.5 days old; a 0 would count as a real reading. |
+| 5 | **Signal names exactly as in `contract/signals.yaml`**, values finite numbers (unchanged). | Anything else is rejected and dropped. |
+| 6 | **`source: "wokwi"`, `provenance: "simulated"`** on every line (unchanged). | NFR-11: simulated data must say so. |
+| 7 | **`crew_id` stays a `#define`; use `cm2`.** | The generator publishes every signal for `cm1`, and each signal of a crew member must come from one publisher only. |
+| 8 | **Any other Serial text starts with `#`** (e.g. `# day 7`). | `validate_serial.py` skips `#` lines; anything else that is not a message counts as an error. |
+
+Example, days 6 to 8 (day 7 is a lab day):
+
+```
+{"crew_id":"cm2","ts":"2026-11-20T10:00:00Z","signal":"resting_hr_bpm","value":60.0,...}
+{"crew_id":"cm2","ts":"2026-11-20T10:00:00Z","signal":"rmssd_ms","value":55.0,...}
+{"crew_id":"cm2","ts":"2026-11-20T10:00:00Z","signal":"cabin_co2_mmhg","value":2.20,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"resting_hr_bpm","value":60.0,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"rmssd_ms","value":55.0,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"cabin_co2_mmhg","value":2.20,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"lymphocytes_per_ul","value":2680,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"il6_pg_ml","value":3.7,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"nk_activity_pct","value":100.0,...}
+{"crew_id":"cm2","ts":"2026-11-21T10:00:00Z","signal":"viral_pcr_positive","value":0,...}
+{"crew_id":"cm2","ts":"2026-11-22T10:00:00Z","signal":"resting_hr_bpm","value":60.0,...}
+...
+```
+
+### 5.2 What this means when using the sliders
+
+- The core takes each person's baseline from their **first 14 days** (28 for labs) and keeps it. So
+  leave the sliders at their defaults for the first 14 days (28 if the demo uses labs), and move them
+  only after that: at 10 s per day that is about 2.5 minutes (5 for labs).
+- A restart begins again at day 0. That is fine; the backend side clears the crew member before a run.
+
+### 5.3 Done when (phase 2)
+
+- [ ] `ts` goes up by exactly one day per cycle, starting at `2026-11-14T10:00:00Z`
+- [ ] Lab lines appear on days 0, 7, 14, … only; HR, RMSSD and CO₂ every day
+- [ ] Pulse `ON` off: HR and RMSSD lines stop, the day still advances, the other lines continue
+- [ ] `crew_id` is `cm2`; changing `SECONDS_PER_DAY` changes the pace and nothing else
+- [ ] A capture of at least 30 days passes `firmware/tools/validate_serial.py`
+- [ ] The three open phase 1 checks in section 4 are done
+
+## Later (separate work, not now)
+
+- **Connecting to the backend:** sending each line over MQTT to `aura/<crew_id>/<group>` (`vitals`,
+  `cabin`, `labs`). Nothing in phase 2 needs to prepare for it beyond the rules above.
+- **Realistic values:** day-to-day noise around the slider value. Until then a still slider gives a
+  baseline with no spread, so the backend can band the signal but not give it a z-score. The numbers
+  to use come from the data side (`contract/signals.yaml`).
+- **Scenarios:** sliders only, or scripted runs matching the generator's.
