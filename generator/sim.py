@@ -100,6 +100,22 @@ def from_logit(u, s: dict):
     return lo + (hi - lo) / (1 + np.exp(-u))
 
 
+def logit_center(s: dict) -> float:
+    """Logit-scale centre whose average, after person and day-to-day variation, equals sim_mean
+    (squeezing toward the ends shifts the average, so the plain logit of sim_mean is slightly off)."""
+    k = logit_slope(s)
+    sig = k * np.hypot(s["person_sd"], s["sim_sd"])
+    z, w = np.polynomial.hermite_e.hermegauss(40)
+    w = w / w.sum()
+    u = to_logit(s["sim_mean"], s)
+    for _ in range(30):  # Newton steps on mean(u) = sim_mean
+        x = from_logit(u + sig * z, s)
+        lo, hi = s["logit"]
+        f, df = (w * x).sum() - s["sim_mean"], (w * (x - lo) * (hi - x) / (hi - lo)).sum()
+        u -= f / df
+    return float(u)
+
+
 def logit_slope(s: dict) -> float:
     """d logit / dx at the typical level: converts spreads in signal units to the logit scale."""
     lo, hi = s["logit"]
@@ -125,7 +141,7 @@ def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str,
             sig = log_sigma(spread, gap)
             prof[s["name"]] = top - gap * np.exp(rng.normal(0, sig) - sig**2 / 2)
         elif "logit" in s:  # bounded both ends: varies on the logit scale, never sits on either end
-            prof[s["name"]] = from_logit(to_logit(mean, s) + rng.normal(0, spread * logit_slope(s)), s)
+            prof[s["name"]] = from_logit(logit_center(s) + rng.normal(0, spread * logit_slope(s)), s)
         else:
             prof[s["name"]] = mean + rng.normal(0, spread)
     return prof

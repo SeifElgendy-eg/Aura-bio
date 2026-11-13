@@ -136,6 +136,7 @@ def test_spreads_match_and_caps_dont_pile_up():
         assert (df[name] >= 100).mean() < 0.001, name                     # no pile-up at the cap
     assert abs(df["sleep_efficiency_pct"].mean() - 91.8) < 0.5
     assert abs(df["exercise_completion_pct"].mean() - 98) < 0.5
-    assert (df["mood_score"].isin([0, 10])).mean() < 0.001                 # logit: never on either end
+    assert (df["mood_score"].isin([0, 10])).mean() < 0.001
+    assert abs(df["mood_score"].mean() - 6.2) < 0.06                 # logit: never on either end
     base = pd.concat([simulate(p, BASELINE_DAYS, rng)["mood_score"] for p in profiles[:1500]], axis=1)
     assert (base.std() > 0).all()                                          # no flat mood baselines
