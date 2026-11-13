@@ -12,6 +12,7 @@ dependencies = [
   "uvicorn",
   "paho-mqtt>=2",
   "torch",
+  "scipy>=1.17.1",
 ]
 
 [dependency-groups]

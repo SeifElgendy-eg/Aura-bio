@@ -1,0 +1,4 @@
+signal,sim_mean,sim_sd,person_sd,n_subjects,n_nights
+resting_hr_bpm,60.12,3.643,5.28,47,253
+sleep_duration_h,6.25,1.009,0.7326,47,253
+sleep_efficiency_pct,88.9,5.761,4.707,47,253

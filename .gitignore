@@ -153,5 +153,4 @@ vite.config.ts.timestamp-*
 __pycache__/
 *.pyc
 artifacts/
-data/processed/
 .pytest_cache/
