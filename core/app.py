@@ -60,15 +60,22 @@ def set_preset(name: str) -> None:
     store.set_mission(name, p["one_way_delay_s"], p["dose_mgy_day"])
 
 
-def anomaly(crew_id: str, latest: dict, base: dict, now: datetime) -> dict:
+def anomaly(crew_id: str, base: dict, now: datetime) -> dict:
     """FR-14: model score over up to 14 days of z-scores; optional, never blocks the rule alerts."""
     if not base:
         return {"available": False, "reason": "baseline not ready"}
     first = datetime.fromisoformat(store.span(crew_id)[0])
     n = min(14, (now - first).days + 1)
-    snaps = [latest] + [store.latest(crew_id, (now - timedelta(days=k)).isoformat()) for k in range(1, n)]
+    snaps = [day_readings(crew_id, now - timedelta(days=k)) for k in range(n)]
     window = domain.model_window(snaps, base, model_signals())
     return model_client.score(crew_id, window)
+
+
+def day_readings(crew_id: str, until: datetime) -> dict:
+    """Readings from the day ending at `until` only. A signal with none that day (dropped sensor) is left out, so
+    the model sees baseline (0) for it, as in training (model.dataset.normalise), not its last value repeated."""
+    after = (until - timedelta(days=1)).isoformat()
+    return {n: r for n, r in store.latest(crew_id, until.isoformat()).items() if r["ts"] > after}
 
 
 def latest_ts(latest: dict) -> str:
@@ -104,7 +111,7 @@ def _crew_status(crew_id: str) -> dict | None:
                for k in range(1, domain.history_days(cfg) + 1)]
     base, m = baselines(crew_id, cfg), mission()
     s = domain.status(crew_id, latest, base, cfg, load_signals(), history, m,
-                      store.total(crew_id, "dose_mgy"), anomaly(crew_id, latest, base, now))
+                      store.total(crew_id, "dose_mgy"), anomaly(crew_id, base, now))
     for alert_id, a in store.sync_alerts(crew_id, s["alerts"], s["ts"]):  # FR-16: each new alert goes to the ground
         store.queue_report(crew_id, alert_id, {
             "crew_id": crew_id, "ts": s["ts"], "alert": a["name"], "level": a["level"], "signals_fired": a["fired"],

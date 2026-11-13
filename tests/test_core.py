@@ -222,6 +222,17 @@ def test_model_window_matches_model_service():
     assert score(ScoreRequest(crew_id="cm1", window=w)).window_days == 2
 
 
+def test_model_sees_a_dropped_sensor_as_baseline(client, monkeypatch):
+    from core import model_client
+    sent = {}
+    monkeypatch.setattr(model_client, "score", lambda crew_id, window: sent.update(window) or {"available": False})
+    for d in range(17):
+        post_day(client, d, mood_score=6 + d % 2, **({"resting_hr_bpm": 60 + d % 2} if d < 15 else {}))
+    client.get("/crew/cm1/status")
+    assert sent["resting_hr_bpm"][-2:] == [0.0, 0.0]  # no reading on days 15-16: baseline, not day 14 repeated
+    assert sent["resting_hr_bpm"][-3] != 0.0
+
+
 def test_api_mission_trend_checkin_and_model_down(client):
     with client.websocket_connect("/ws") as ws:
         for d in range(16):
