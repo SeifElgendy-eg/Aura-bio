@@ -163,6 +163,15 @@ def effect_ramp(scenario: Scenario, name: str, n_days: int) -> np.ndarray:
     return ramp
 
 
+def mul_base(value: float, response_sd: float) -> float:
+    """Base b so that b ** response averages 1 + value over response ~ N(1, response_sd):
+    E[b**R] = b * exp(response_sd**2 * ln(b)**2 / 2). Keeps the stated average change."""
+    b = 1 + value
+    for _ in range(50):
+        b = (1 + value) / np.exp(response_sd**2 * np.log(b) ** 2 / 2)
+    return b
+
+
 def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str,
                  scale: float = 1.0) -> np.ndarray:
     """Add the scenario's effect for this signal to a daily series (simulated or replayed).
@@ -174,6 +183,8 @@ def apply_effect(x: np.ndarray, mean: float, scenario: Scenario, name: str,
     if eff.mode == "add":
         return x + ramp * eff.value
     if eff.mode == "mul":
+        if scenario.response_sd:  # response size varies: log scale, so a large response never crosses 0
+            return x * mul_base(eff.value, scenario.response_sd) ** ramp
         return x * (1 + ramp * eff.value)
     return x + ramp * (eff.value - mean)  # "set"
 

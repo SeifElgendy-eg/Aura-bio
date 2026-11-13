@@ -416,7 +416,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
 | Solar particle event | On day 21 every crew member's dose is 51% higher for one day (+0.146 mGy on the ISS, as measured on 10 Sep 2017, Berger et al. 2018); other presets scaled by their own level (derived) | Radiation amber; cumulative dose steps up; dose is a model input, so the anomaly score can react |
-| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 23% of weekly samples (from 3%; NASA astronaut saliva data). Each astronaut's response size varies (spread 78%, Inspiration4 crew) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
+| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 23% of weekly samples (from 3%; NASA astronaut saliva data). Each astronaut's response size varies (spread 78%, Inspiration4 crew), applied on the log scale so no value goes below 0; averages unchanged | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
 
 ### 6.3 Model performance
 

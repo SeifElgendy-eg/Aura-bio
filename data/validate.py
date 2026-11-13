@@ -94,6 +94,28 @@ def flight_change(seed: int = 0) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# Spreads calibrated from data (not from papers): (signal, field) pairs tuned by simulation so that
+# short simulated runs reproduce the real within-unit and between-unit spreads.
+MATCHED = {"resting_hr_bpm": ("sim_sd", "person_sd"), "sleep_duration_h": ("sim_sd", "person_sd"),
+           "sleep_efficiency_pct": ("sim_sd", "person_sd"), "cabin_co2_mmhg": ("sim_sd", "person_sd"),
+           "il6_pg_ml": ("person_sd",)}
+
+
+def match_spreads(iterations: int = 5, n_sim: int = 800) -> dict:
+    """Scale each matched field by real/simulated spread until they agree. Returns the new values.
+    Changes the in-process signal settings: restart Python before trusting any other result."""
+    from contract.schema import load_signals
+    sig = {s["name"]: s for s in load_signals()}  # cached dicts: editing them changes the simulator
+    for _ in range(iterations):
+        v = validate(seed=1, n_sim=n_sim).set_index("signal")
+        for name, fields in MATCHED.items():
+            if "sim_sd" in fields:
+                sig[name]["sim_sd"] *= v.at[name, "real_within_sd"] / v.at[name, "sim_within_sd"]
+            if "person_sd" in fields:
+                sig[name]["person_sd"] *= v.at[name, "real_between_sd"] / v.at[name, "sim_between_sd"]
+    return {n: {f: round(sig[n][f], 4) for f in fields} for n, fields in MATCHED.items()}
+
+
 def main() -> None:
     pd.set_option("display.width", 200)
     v, f = validate(), flight_change()
@@ -107,24 +129,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-# Spreads calibrated from data (not from papers): (signal, field) pairs tuned by simulation so that
-# short simulated runs reproduce the real within-unit and between-unit spreads.
-MATCHED = {"resting_hr_bpm": ("sim_sd", "person_sd"), "sleep_duration_h": ("sim_sd", "person_sd"),
-           "sleep_efficiency_pct": ("sim_sd", "person_sd"), "cabin_co2_mmhg": ("sim_sd", "person_sd"),
-           "il6_pg_ml": ("person_sd",)}
-
-
-def match_spreads(iterations: int = 5, n_sim: int = 800) -> dict:
-    """Scale each matched field by real/simulated spread until they agree. Returns the new values."""
-    from contract.schema import load_signals
-    sig = {s["name"]: s for s in load_signals()}  # cached dicts: editing them changes the simulator
-    for _ in range(iterations):
-        v = validate(seed=1, n_sim=n_sim).set_index("signal")
-        for name, fields in MATCHED.items():
-            if "sim_sd" in fields:
-                sig[name]["sim_sd"] *= v.at[name, "real_within_sd"] / v.at[name, "sim_within_sd"]
-            if "person_sd" in fields:
-                sig[name]["person_sd"] *= v.at[name, "real_between_sd"] / v.at[name, "sim_between_sd"]
-    return {n: {f: round(sig[n][f], 4) for f in fields} for n, fields in MATCHED.items()}

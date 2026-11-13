@@ -140,3 +140,18 @@ def test_spreads_match_and_caps_dont_pile_up():
     assert abs(df["mood_score"].mean() - 6.2) < 0.06                 # logit: never on either end
     base = pd.concat([simulate(p, BASELINE_DAYS, rng)["mood_score"] for p in profiles[:1500]], axis=1)
     assert (base.std() > 0).all()                                          # no flat mood baselines
+
+
+def test_scenarios_never_produce_impossible_values():
+    """log signals stay > 0 and chances stay 0..1 under every scenario, incl. large immune responses."""
+    sig = load_signals()
+    rng = np.random.default_rng(7)
+    for sc in SCENARIOS.values():
+        for _ in range(200):
+            d = simulate(make_profile(rng), sc.days, rng, sc)
+            for s in sig:
+                col = d[s["name"]].dropna()
+                if s.get("log"):
+                    assert (col > 0).all(), (sc.name, s["name"])
+                if "p" in s:
+                    assert col.isin([0.0, 1.0]).all(), (sc.name, s["name"])
