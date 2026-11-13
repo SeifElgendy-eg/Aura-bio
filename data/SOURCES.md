@@ -1,6 +1,6 @@
 # Datasets (plan section 5)
 
-`uv run python data/fetch.py [source ...]` downloads into `data/raw/<source>/` (git-ignored) and
+`uv run python data/fetch.py [source ...]` downloads into `data/raw/<source>/` (committed to the repo) and
 writes `data/raw/MANIFEST.json` (URL, bytes, sha256 per file). Re-runs skip what is already there.
 Nothing may hit a NASA server during the demo (NFR-7), so run this before the event.
 Datasets on the official challenge page take precedence over this list.

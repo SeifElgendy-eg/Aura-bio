@@ -16,7 +16,7 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 - `model/` — `dataset.py` (baseline z-normalisation, 5-day windows), `autoencoder.py` (dense AE),
   `train.py` (trains on normal days only, threshold = p99 normal error), `service.py` (FastAPI
   `/score`, `/health`; separate container so rule alerts survive a model crash, NFR-4).
-- `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (git-ignored).
+- `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).
 
 ## Commands
