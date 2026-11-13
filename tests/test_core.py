@@ -330,7 +330,7 @@ def test_red_signal_alert_and_plan_tables(client):  # plan 3.5 data decompositio
     assert core_app.store.mission()["preset"] == "station" and core_app.store.crews() == ["cm1"]
 
 
-def test_web_app_may_call_the_api(client):  # Flutter web runs on another origin
+def test_web_app_may_call_the_api(client):  # the web app runs on another origin
     r = client.options("/checkin", headers={"Origin": "http://localhost:5000", "Access-Control-Request-Method": "POST",
                                             "Access-Control-Request-Headers": "content-type"})
     assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "*"

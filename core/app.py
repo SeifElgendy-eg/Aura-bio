@@ -159,7 +159,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
-# the Flutter web app is served from another port; any origin is fine for a local demo with simulated data
+# the web app is served from another port; any origin is fine for a local demo with simulated data
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 

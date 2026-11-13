@@ -5,7 +5,7 @@ member against their own baseline and alerts on cross-system patterns. The full 
 "AURA-Bio software plan" PDF; section refs below (e.g. "plan 4.3") point into it.
 
 This repo holds the **data + model** workstream and the **core service** (backend). Firmware (Wokwi) and the
-Flutter app are other workstreams and may land here later as `firmware/`, `app/`.
+app (no longer Flutter, unlike the plan) are other workstreams and may land here later as `firmware/`, `app/`.
 
 ## Layout
 - `contract/` — shared contract, changed only by team agreement. `signals.yaml` (names include
