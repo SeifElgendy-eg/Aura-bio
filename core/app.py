@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
@@ -158,6 +159,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
+# the Flutter web app is served from another port; any origin is fine for a local demo with simulated data
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 class CheckIn(BaseModel):

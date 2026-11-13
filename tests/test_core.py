@@ -328,3 +328,9 @@ def test_red_signal_alert_and_plan_tables(client):  # plan 3.5 data decompositio
     assert not a["active"] and a["fired"]["cabin_co2_mmhg"]["value"] == 3.5
     assert core_app.store.baselines("cm1")["cabin_co2_mmhg"][0] == pytest.approx(2.05)  # frozen after the window
     assert core_app.store.mission()["preset"] == "station" and core_app.store.crews() == ["cm1"]
+
+
+def test_web_app_may_call_the_api(client):  # Flutter web runs on another origin
+    r = client.options("/checkin", headers={"Origin": "http://localhost:5000", "Access-Control-Request-Method": "POST",
+                                            "Access-Control-Request-Headers": "content-type"})
+    assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "*"
