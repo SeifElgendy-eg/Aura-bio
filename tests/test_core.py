@@ -164,12 +164,12 @@ def test_bad_messages_are_rejected_without_stopping(client):  # FR-2, NFR-2
     good = '{"crew_id":"cm1","ts":"2026-11-14T10:00:00Z","signal":"cabin_co2_mmhg","value":2.7,' \
            '"source":"wokwi","provenance":"simulated"}'
     for bad in (b"not json", good.replace("cabin_co2_mmhg", "nope"), good.replace("2.7", '"x"'),
-                good.replace("simulated", "made-up")):
+                good.replace("simulated", "made-up"), good.replace("Z", "")):  # last: ts without a time zone
         assert core_app.ingest(bad, "aura/cm1/cabin") is None
     assert post_day(client, 0, nope=1.0, mood_score=6)["rejected"] == ["nope"]
     assert core_app.ingest(good, "aura/cm1/cabin") is not None
     core_app.ingest(good, "aura/cm1/cabin")  # QoS 1 duplicate is stored once
-    assert client.get("/health").json() == {"status": "ok", "mqtt_connected": False, "readings": 2, "rejects": 5}
+    assert client.get("/health").json() == {"status": "ok", "mqtt_connected": False, "readings": 2, "rejects": 6}
 
 
 def test_every_rule_has_a_response():  # FR-6
@@ -245,6 +245,7 @@ def test_api_mission_trend_checkin_and_model_down(client):
     s = client.get("/crew/cm1/status").json()
     assert s["signals"]["reaction_lapses_pct"]["value"] == 50 and s["signals"]["mood_score"]["value"] == 6
     assert client.post("/checkin", json={"crew_id": "cm1", "ts": T0.isoformat(), "mood_answers": [12]}).status_code == 422
+    assert client.post("/checkin", json={"crew_id": "cm1", "ts": "2026-11-30T10:00:00", "mood_answers": [2]}).status_code == 422
     client.post("/checkin", json={"crew_id": "cm1", "mood_answers": [2]})  # no ts: lands on the crew's current day
     m = client.get("/crew/cm1/status").json()["signals"]["mood_score"]
     assert m["value"] == 2 and m["ts"] == (T0 + timedelta(days=16)).isoformat()

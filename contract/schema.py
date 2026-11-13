@@ -1,13 +1,12 @@
 """Shared message contract (plan 4.2). Core service, generator and Wokwi all emit this shape."""
 from __future__ import annotations
 
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel
 
 SIGNALS_YAML = Path(__file__).with_name("signals.yaml")
 PRESETS_YAML = Path(__file__).with_name("presets.yaml")
@@ -17,7 +16,7 @@ GROUPS = ("vitals", "cabin", "radiation", "labs")
 
 class Reading(BaseModel):
     crew_id: str
-    ts: datetime
+    ts: AwareDatetime  # a ts without a zone would be read as the server's local time
     signal: str
     value: float
     source: Literal["wokwi", "generator", "app"]

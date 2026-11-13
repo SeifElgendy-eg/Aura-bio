@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
 from core import domain, model_client
@@ -167,7 +167,7 @@ class CheckIn(BaseModel):
     crew_id: str
     # None = the crew member's current simulated day (their newest reading): the app does not know how far a
     # replayed scenario has run, and a wall-clock ts would land weeks in the past or jump everyone to stale
-    ts: datetime | None = None
+    ts: AwareDatetime | None = None
     values: dict[str, float] = {}  # signal name -> value, e.g. {"exercise_completion_pct": 95}
     reaction_times_ms: list[float] | None = Field(None, min_length=1)  # raw reaction test, one per trial
     mood_answers: list[float] | None = Field(None, min_length=1)  # one per mood question, on the checkin mood_scale
