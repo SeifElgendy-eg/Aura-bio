@@ -11,7 +11,7 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 1.2, 4.3 | Anomaly model: three autoencoders on 2-, 7- and 14-day windows instead of one short window |
 | 4.1 | Resting heart rate defined as nocturnal (lowest 30-min mean during sleep) |
 | 4.1, 4.2 | New signal `dose_mgy` (daily absorbed dose, per astronaut) and a model input; mission presets live in `contract/presets.yaml` |
-| 4.4 | Station dose rate measured; Moon dose rate sourced (to verify); quality factors added |
+| 4.4 | Dose rates and quality factors verified against the papers; radiation limits added |
 | 4.7 | Data and model tooling added (uv, CPU PyTorch, pandas, scipy) |
 | 5 | All datasets downloaded, processed and committed to the repo |
 | 5.3 (new) | Which simulator values are calibrated from real data or papers, and which are still guesses |
@@ -264,16 +264,16 @@ The autoencoders train on generated normal days whose levels, day-to-day spread 
 
 ### 4.4 Mission presets
 
-| Preset | One-way signal delay | Dose rate (absorbed) | Quality factor (verify) | Alert wording |
+| Preset | One-way signal delay | Dose rate (absorbed) | Quality factor | Alert wording |
 | --- | --- | --- | --- | --- |
-| Station | Near real time | 0.285 mGy per day (RadLab DosTel mean, Jan–Mar 2022) | 2.0 | Contact the ground |
-| Moon | About 1.3 seconds | About 0.32 mGy per day (Chang'e 4 LND; verify) | 4.3 | Contact the ground |
-| Mars transit | Roughly 3 to 22 minutes | 0.48 mGy per day | 3.8 | Follow onboard protocol; report queued |
-| Mars surface | Roughly 3 to 22 minutes | 0.21 mGy per day | 3.05 | Follow onboard protocol; report queued |
+| Station | Near real time | 0.285 mGy per day (RadLab DosTel mean, Jan–Mar 2022) | 1.85 (derived) | Contact the ground |
+| Moon | About 1.3 seconds | 0.317 mGy per day (Chang'e 4, Zhang et al. 2020) | 4.3 | Contact the ground |
+| Mars transit | Roughly 3 to 22 minutes | 0.48 mGy per day | 3.83 | Follow onboard protocol; report queued |
+| Mars surface | Roughly 3 to 22 minutes | 0.21 mGy per day | 3.2 | Follow onboard protocol; report queued |
 
 Presets live in `contract/presets.yaml`. Each astronaut's daily dose varies about 5.5% day to day (measured on the ISS and reused for the other presets) around their own level.
 
-Mars dose rates are Curiosity measurements ([Hassler et al.](https://typeset.io/pdf/mars-surface-radiation-environment-measured-with-the-mars-244eildtx0.pdf)). The Station rate is a time-weighted daily average of real ISS detector readings (readings come more often inside the South Atlantic Anomaly, so a plain average would over-count to ~0.75 mGy/day). The Moon rate is absorbed dose on the lunar surface from Zhang et al. 2020 (*Science Advances*), entered from memory and still to be checked against the paper. Delay figures are approximate and need a citation before the pitch.
+Mars dose rates are Curiosity measurements ([Hassler et al.](https://typeset.io/pdf/mars-surface-radiation-environment-measured-with-the-mars-244eildtx0.pdf)). The Station rate is a time-weighted daily average of real ISS detector readings (readings come more often inside the South Atlantic Anomaly, so a plain average would over-count to ~0.75 mGy/day). Quality factors are dose equivalent ÷ absorbed dose from the same papers (Mars: Zeitlin et al. 2013, 1.84 mSv/day in transit; Hassler et al. 2014, 0.67 mSv/day on the surface; Moon: Zhang et al. 2020, 1,369 µSv/day). The Station factor is derived (Zhang's lunar/ISS ratio of 2.6 against our measured ISS dose). Limits for the rules: 600 mSv career effective dose and 250 mSv per solar particle event (NASA-STD-3001). Delay figures are approximate and need a citation before the pitch.
 
 ### 4.5 Reliability tactics
 
@@ -392,7 +392,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | --- | --- | --- |
 | CO₂ creep | CO₂ rises 1.2 mmHg above the cabin's own level over 8 days; headache logged; reaction lapses up 25% | Environment amber then red; pattern "CO₂-associated performance impairment"; response: check ventilation. Caught by the rules, not by the anomaly model (score peaks at 0.9, below the alarm line of 1) |
 | Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down 1.7 points, mostly in the first days | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
-| Deconditioning | Resting heart rate up 12 bpm; exercise completion 70%; slow recovery | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
+| Deconditioning (exercise lapses) | Exercise completion drops to 70%; resting heart rate rises 12 bpm over 21 days; HRV down 10%. Sizes are this plan's proposal: on the ISS, resting HR stays flat when crew exercise (Hughson et al.); bed rest without exercise raises it | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
 | Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 20% of weekly samples (from 5%) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
@@ -470,5 +470,8 @@ Licences were not checked for most repos. Confirm each before copying code.
 | Barger et al. 2014, *Lancet Neurology* | ISS crews sleep 6.09 h a night on average |
 | Bellenger et al. 2022, *Sensors* 22:6723 | HRV day-to-day variation, 3–13% of log-RMSSD |
 | Kikuya et al. 2008, *Hypertension* (Ohasama study) | Home systolic BP day-to-day spread ~9 mmHg |
-| Zhang et al. 2020, *Science Advances* | Moon surface dose (to verify) |
+| Zhang et al. 2020, *Science Advances* 6:eaaz1334 | Moon surface dose: 13.2 µGy/h absorbed, 1,369 µSv/day dose equivalent |
+| Zeitlin et al. 2013, *Science* 340:1080; Hassler et al. 2014, *Science* 343 | Mars transit and surface dose |
+| NASA-STD-3001 | Radiation limits: 600 mSv career, 250 mSv per solar event |
+| Hughson et al. 2012, *J Appl Physiol* | ISS resting HR unchanged in flight with exercise; HRV high-frequency power falls |
 | Song et al. 2025, *IEEE TBME*; BIDSleep dataset (ODC-By) | Wearable heart rate and sleep; cite when used |

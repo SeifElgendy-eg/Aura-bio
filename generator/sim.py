@@ -54,8 +54,11 @@ SCENARIOS: dict[str, Scenario] = {
         "mood_score": Effect("add", -1.7, 14, power=0.24),
         "reaction_lapses_pct": Effect("add", 14, 14, power=0.78),
     }),
+    # Exercise lapses -> bed-rest-like deconditioning. Sizes are the plan's PROPOSAL (not published):
+    # on the ISS, resting HR stays unchanged when crew exercise (Hughson et al.); bed rest without
+    # exercise raises it, but no rate was found. HR rise spread over 21 days (builds over weeks).
     "deconditioning": Scenario("deconditioning", effects={
-        "resting_hr_bpm": Effect("add", 12, 7),
+        "resting_hr_bpm": Effect("add", 12, 21),
         "exercise_completion_pct": Effect("set", 70, 7),
         "rmssd_ms": Effect("mul", -0.1, 7),
     }),
