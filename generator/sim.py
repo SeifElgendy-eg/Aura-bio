@@ -195,12 +195,16 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
     scenario = scenario or SCENARIOS["normal"]
     # this astronaut's response size, shared by all signals in the scenario
     scale = 1 + rng.normal(0, scenario.response_sd) if scenario.response_sd else 1.0
-    cols = {}
+    cols, shocks = {}, {}
     for s in load_signals():
         name, mean, sd, ar = s["name"], profile[s["name"]], s["sim_sd"], s.get("ar", 0.4)
-        eps = rng.normal(0, sd * np.sqrt(1 - ar**2), n_days)  # stationary AR(1) with std sd
+        z = rng.standard_normal(n_days + 1)  # this signal's daily shocks (last one starts the series)
+        for other, r in s.get("corr", {}).items():  # same-day link to an earlier signal
+            z = r * shocks[other] + np.sqrt(1 - r**2) * z
+        shocks[name] = z
+        eps = sd * np.sqrt(1 - ar**2) * z[:n_days]  # stationary AR(1) with std sd
         noise = np.zeros(n_days)
-        noise[0] = rng.normal(0, sd)
+        noise[0] = sd * z[n_days]
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
         if "p" in s:  # binary yes/no signal (e.g. viral shedding): effects change the chance, not the 0/1
@@ -215,7 +219,7 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
             elif "log_from" in s:  # shortfall below the cap varies multiplicatively
                 top = s["log_from"]
                 sig = log_sigma(sd, top - s["sim_mean"])
-                x = top - (top - mean) * np.exp(sig * noise / sd - sig**2 / 2)
+                x = top - (top - mean) * np.exp(-sig * noise / sd - sig**2 / 2)  # minus: positive noise = higher value
             elif "logit" in s:
                 x = from_logit(to_logit(mean, s) + noise * logit_slope(s), s)
             else:

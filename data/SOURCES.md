@@ -143,7 +143,8 @@ real values inside the simulated 95% range; plus the Inspiration4 flight change 
 `processed/validation.csv` and `processed/validation_flight_change.csv`; `tests/test_validation.py` fails if
 coverage < 90% or a level/spread is off by > 15%. Spreads from data (resting HR, sleep, CO₂, IL-6 person) are
 matched by simulation (`match_spreads()`), since a unit's average over a short run still carries day-to-day noise.
-Known, accepted differences: sleep levels (ISS values on purpose), lymphocyte spreads (Coskun kept). Results: plan 5.3.
+`links()` checks same-day links set with `corr` (sleep duration–efficiency: real 0.59, simulated ~0.60;
+`processed/validation_links.csv`). Known, accepted differences: sleep levels (ISS values on purpose), lymphocyte spreads (Coskun kept). Results: plan 5.3.
 
 ## Final status of every simulator value
 

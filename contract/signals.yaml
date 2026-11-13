@@ -4,12 +4,16 @@
 #   levels between astronauts; ar = day-to-day persistence (lag-1; 0.4 when absent); log: true = multiplicative
 #   variation (never <= 0); log_from: M = the shortfall below M varies multiplicatively (approaches M, never sits
 #   on it); logit: [lo, hi] = varies on the logit scale between both ends (never sits on either);
+#   corr: {other: r} = day-to-day shocks linked to an EARLIER signal in this list (correlation r of the shocks;
+#     the values' correlation comes out a bit lower after shapes and limits, see data/validate.py links());
 #   p = chance per sample for yes/no signals; interval_days = sampled every N days;
 #   min/max = hard limits of the scale (values clipped). `model: true` signals form the autoencoder input, IN THIS ORDER.
 # Every value is SOURCED, ESTIMATED (derived, rough) or an ASSUMPTION (no published data). Full list: data/SOURCES.md.
 #
 # SOURCED
 #   resting_hr_bpm: all values, PhysioNet BIDSleep (nocturnal lowest 30-min mean during sleep).
+#   sleep_efficiency_pct corr with sleep_duration_h: real same-night within-person correlation 0.59 (BIDSleep, 253 nights,
+#     47 people); set to 0.74 by simulation, because the shortfall-below-100% shape weakens the link (gives 0.596). Resting HR is left unlinked: its link to sleep is not reliable in the data (r -0.09 same night).
 #   sleep_duration_h, sleep_efficiency_pct: levels 6.5 h / 91.8% from ISS astronauts in flight (Jones et al. 2022);
 #     spreads and ar from BIDSleep.
 #   rmssd_ms: day-to-day 17 ms = lnRMSSD CV ~8% (Bellenger et al. 2022); person_sd 15 from the 19-75 ms normal range
@@ -50,7 +54,7 @@ signals:
   - {name: rmssd_ms,               system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 55,   sim_sd: 17,   person_sd: 15,  log: true,  model: true}
   - {name: bp_systolic_mmhg,       system: cardiovascular, group: vitals,    source: generator, sim_mean: 117,  sim_sd: 9,    person_sd: 10,   model: true}
   - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 6.5,  sim_sd: 0.98, person_sd: 0.64, ar: -0.20, min: 0, max: 24,  model: true}
-  - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 91.8, sim_sd: 4.89, person_sd: 4.39, ar: -0.27, log_from: 100, min: 0, max: 100,  model: true}
+  - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 91.8, sim_sd: 4.89, person_sd: 4.39, ar: -0.27, corr: {sleep_duration_h: 0.74}, log_from: 100, min: 0, max: 100,  model: true}
   - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 5.4,  person_sd: 6.5,  log: true, min: 0, max: 100, model: true}
   - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 6.2,  sim_sd: 0.6,  person_sd: 1.7,  logit: [0, 10], min: 0, max: 10, model: true}
   - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.56, person_sd: 0.39, ar: 0.87, min: 0.76,  model: true}

@@ -23,6 +23,7 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 5.3 | Distribution shapes fixed so no signal piles up at a limit; BP person spread 10; every value marked sourced, estimated or assumption; CO₂ floor 0.76 mmHg; shedding 3%, NK 14%, lapse spreads |
 | 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
+| 5.3, 6.3 | Sleep duration and efficiency now vary together on normal days (r 0.59, BIDSleep); model re-measured |
 | 5.3, 6.2 | Simulator validated against all real datasets; spreads matched by simulation; immune response size varies per astronaut (spread 78%) |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
@@ -363,7 +364,7 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | --- | --- | --- | --- | --- | --- |
 | Resting heart rate | 60.1 bpm | 3.8 | 4.6 | 0.25 | BIDSleep (spreads matched by simulation) |
 | Sleep duration | 6.5 h | 0.98 | 0.64 | −0.20 | Level: ISS astronauts (Jones et al. 2022); spreads: BIDSleep |
-| Sleep efficiency | 91.8% (max 100) | 4.9 | 4.4 | −0.27 | Level: Jones et al. 2022; spreads: BIDSleep |
+| Sleep efficiency | 91.8% (max 100) | 4.9 | 4.4 | −0.27; linked to same night's sleep duration, r 0.59 (BIDSleep) | Level: Jones et al. 2022; spreads: BIDSleep |
 | Cabin CO₂ | 2.21 mmHg (min 0.76) | 0.56 | 0.39 (between cabins) | 0.87 | NASA EDA (spreads matched by simulation) |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
 | HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (assumption) | Bellenger et al. 2022; Nunan et al. 2010 |
@@ -389,6 +390,8 @@ Persistence and the night-to-night values for sleep and heart rate come from onl
 | Daily dose (2 detectors) | 0.016 vs 0.016 | 0.026 vs 0.026 | 97.8% |
 | IL-6 (4 crew) | 1.04 vs 1.15 | 0.76 vs 0.77 | 100% |
 | Lymphocytes (4 crew) | 1,333 vs 280 | 899 vs 656 | 91.7% |
+
+Same-night link of sleep duration and efficiency (within each person): real 0.59, simulated 0.60–0.62. Other signals are not linked: resting HR shows no reliable link to sleep in the data (r −0.09).
 
 Sleep levels differ on purpose (ISS values, not BIDSleep's ground nights). Lymphocyte spreads stay on Coskun et al. 2020: the 4 Inspiration4 crew were sampled months apart, which adds slow change a weekly sample would not show. Flight change (day after landing vs pre-flight): lymphocytes −26.8% real vs −26.5% simulated, IL-6 +90% vs +98%. All 4 crew fall inside the simulated 95% range, because each simulated astronaut gets their own response size (spread 78% of the average, as among the Inspiration4 crew: lymphocytes −48% to +2%).
 
@@ -424,15 +427,15 @@ Measured over 200 simulated astronauts per scenario (`model.train` prints this);
 
 | Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 19% of astronauts over 20 days; 1.1% of normal days | — | 14-day: 1% |
-| Sleep debt | 64% | 6 | 2-day: 60% |
-| Deconditioning | 64% | 6 | 2-day: 60%; 7-day: 43% |
-| Solar particle event | 91% | same day | 2-day: 91% |
-| CO₂ creep | 24% (barely above normal) | 10 | caught by the rules instead |
-| Immune dysregulation | 16% (= normal) | — | lab values are not model inputs; caught by the rules |
+| Normal (false alarms) | 22% of astronauts over 20 days; 1.4% of normal days | — | 14-day: 1% |
+| Sleep debt | 79% | 5 | 2-day: 78% |
+| Deconditioning | 86% | 6 | 2-day: 82%; 7-day: 66% |
+| Solar particle event | 97% | same day | 2-day: 97% |
+| CO₂ creep | 30% (barely above normal) | 9 | caught by the rules instead |
+| Immune dysregulation | 18% (= normal) | — | lab values are not model inputs; caught by the rules |
 | Sensor loss | 14% | — | handled by stale marking (FR-8) |
 
-After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%: the plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
+After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%. Adding the real sleep duration–efficiency link (5.3) and retraining moved them to 79% and 86%, with false alarms 1.1% → 1.4% of days; deconditioning does not touch sleep, so most of that swing is run-to-run variation from retraining on new random data, not the link. Treat single numbers as ±10–20 points. The plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
 
 ## 7. Delivery
 

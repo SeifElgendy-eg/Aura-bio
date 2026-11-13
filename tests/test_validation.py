@@ -29,6 +29,11 @@ def test_levels_and_spreads_match_real_data(v):
             assert abs(r.sim_between_sd / r.real_between_sd - 1) < 0.15, r.signal
 
 
+def test_links_match_real_data():
+    l = validate.links(seed=3, n_sim=300)
+    assert ((l.sim_r - l.real_r).abs() < 0.08).all(), l
+
+
 def test_immune_scenario_covers_inspiration4_flight_change():
     f = validate.flight_change(seed=3)
     assert (f.coverage_95 == 1).all()
