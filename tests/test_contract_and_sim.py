@@ -109,3 +109,13 @@ def test_scale_limits_hold():
     df = pd.concat([simulate(make_profile(rng), 60, rng, SCENARIOS["sleep_debt"]) for _ in range(200)])
     assert df["sleep_efficiency_pct"].max() <= 100 and df["reaction_lapses_pct"].min() >= 0
     assert df["mood_score"].between(0, 10).all()
+
+
+def test_log_signals_keep_stated_average():
+    from contract.schema import load_signals
+    rng = np.random.default_rng(4)
+    df = pd.concat([simulate(make_profile(rng), 60, rng) for _ in range(1500)])
+    for s in load_signals():
+        if s.get("log"):
+            assert abs(df[s["name"]].mean() / s["sim_mean"] - 1) < 0.02, s["name"]
+            assert (df[s["name"]].dropna() > 0).all(), s["name"]

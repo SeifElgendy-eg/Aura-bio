@@ -95,7 +95,11 @@ def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str,
         if s["name"] == "dose_mgy":
             scale = p["dose_mgy_day"] / mean
             mean, spread = mean * scale, spread * scale
-        prof[s["name"]] = mean + rng.normal(0, spread)
+        if s.get("log"):  # multiplicative offset: never <= 0, and keeps the stated average
+            cv = spread / s["sim_mean"]
+            prof[s["name"]] = mean * np.exp(rng.normal(0, cv) - cv**2 / 2)
+        else:
+            prof[s["name"]] = mean + rng.normal(0, spread)
     return prof
 
 
@@ -143,7 +147,11 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         else:
             # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
             # so it scales with each astronaut's or preset's level and never goes negative
-            x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
+            if s.get("log"):  # -cv^2/2 keeps the average at `mean` (exp of a normal is biased up)
+                cv = sd / s["sim_mean"]
+                x = mean * np.exp(noise / s["sim_mean"] - cv**2 / 2)
+            else:
+                x = mean + noise
             x = apply_effect(x, mean, scenario, name)
         if "min" in s or "max" in s:  # hard limits of the scale (e.g. efficiency <= 100%)
             x = np.clip(x, s.get("min", -np.inf), s.get("max", np.inf))

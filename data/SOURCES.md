@@ -130,7 +130,7 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | Exercise | No published adherence %; ISS crews log ~600 min/week, range 450–720 (npj Microgravity 2023, 10.1038/s41526-023-00256-5). `exercise_completion_pct` 98% stays a guess | |
 | Immune scenario (`immune`, 90 days) | From day 21, ramping over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4 averages), NK activity −50% (Bigley et al. 2019, flight day 90); viral shedding chance per weekly sample 5% → 20% (derived, not published; Mehta et al. 2017: 61% of ISS crew shed) | |
 | Not simulated (no usable data) | sIgA (rises in flight, Agha et al. 2020), vitamin D (falls, Smith/Zwart), calories (74–80% of recommended), body mass (falls), fluid | future work |
-| ISS sleep reference | 6.09 h/night on ISS (our BIDSleep calibration: 6.25 h) | Barger et al. 2014, *Lancet Neurology* |
+| ISS sleep reference | 6.09 h/night on ISS (Barger); 6.5 h in Jones 2022, which the simulator now uses | Barger et al. 2014, *Lancet Neurology* |
 
 Conversion note: Van Dongen counts lapses (RT > 500 ms) per 10-min PVT (~100 stimuli), so +14 lapses
 ≈ +14 percentage points. The app's 90-s test is shorter and less sensitive; treat this as approximate.
