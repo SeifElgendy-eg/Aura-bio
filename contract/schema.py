@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel
 
 SIGNALS_YAML = Path(__file__).with_name("signals.yaml")
+PRESETS_YAML = Path(__file__).with_name("presets.yaml")
 GROUPS = ("vitals", "cabin", "radiation", "labs")
 
 
@@ -28,6 +29,11 @@ class Reading(BaseModel):
 @lru_cache
 def load_signals() -> list[dict]:
     return yaml.safe_load(SIGNALS_YAML.read_text())["signals"]
+
+
+@lru_cache
+def load_presets() -> dict[str, dict]:
+    return yaml.safe_load(PRESETS_YAML.read_text())["presets"]
 
 
 def model_signals() -> list[str]:

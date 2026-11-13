@@ -7,6 +7,8 @@
 # = spread between missions/cabins). ar = day-to-day persistence (lag-1), measured; default 0.4 when absent.
 # rmssd_ms sim_sd 17 (log: true -> simulated in log space, sd_ln = 17/55): lnRMSSD day-to-day CV ~8% (middle of 3-13%, Bellenger et al. 2022, Sensors).
 # bp_systolic_mmhg sim_sd 9: home SBP within-person day-to-day SD (Ohasama study, Kikuya et al. 2008).
+# dose_mgy: daily absorbed dose, calibrated from RadLab ISS DosTel (data/processed/radlab_dose_calibration.csv);
+# person_sd = spread between the two detector locations (only 2 locations: rough); per-preset level in presets.yaml.
 # All other sim_* values (and the HRV/BP means and person_sd) are still guesses awaiting review.
 # `model: true` signals form the autoencoder input vector, IN THIS ORDER.
 signals:
@@ -19,3 +21,4 @@ signals:
   - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 0.6,  person_sd: 0.5,  model: true}
   - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.46, person_sd: 0.50, ar: 0.87,  model: true}
   - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    model: true}
+  - {name: dose_mgy,               system: radiation,      group: radiation, source: generator, sim_mean: 0.285, sim_sd: 0.0158, person_sd: 0.0255, ar: -0.05, log: true, model: true}

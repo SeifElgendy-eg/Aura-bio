@@ -50,3 +50,14 @@ def test_sleep_debt_lapses_follow_van_dongen():
     day14 = df["reaction_lapses_pct"].iloc[on + 11: on + 16].mean()  # around day 14 of restriction
     assert 8 < day14 - base < 20                                      # ~ +14 points
     assert df["reaction_lapses_pct"].iloc[-5:].mean() > day14         # keeps rising after day 14
+
+
+def test_dose_follows_preset_and_differs_per_astronaut():
+    from contract.schema import load_presets
+    for preset, p in load_presets().items():
+        rng = np.random.default_rng(1)
+        levels = [simulate(make_profile(rng, preset), 60, rng)["dose_mgy"].mean() for _ in range(200)]
+        assert abs(np.mean(levels) - p["dose_mgy_day"]) / p["dose_mgy_day"] < 0.03, preset
+        assert np.std(levels) > 0.05 * p["dose_mgy_day"], preset   # each astronaut has own level
+    rng = np.random.default_rng(2)
+    assert (simulate(make_profile(rng, "mars_transit"), 60, rng)["dose_mgy"] > 0).all()

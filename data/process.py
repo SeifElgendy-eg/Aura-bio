@@ -192,7 +192,10 @@ def eda_outputs() -> dict:
 
 SOURCES = {
     "bidsleep": bidsleep_outputs,
-    "radlab": lambda: {"radlab_daily_dose.csv": radlab()},
+    "radlab": lambda: (lambda d: {"radlab_daily_dose.csv": d,
+                                  "radlab_dose_calibration.csv": calibration(
+                                      d.assign(dose_mgy=d["absorbed_ugy_per_day"] / 1000),
+                                      ["dose_mgy"], "instrument_id")})(radlab()),
     "eda": eda_outputs,
     "inspiration4": lambda: (lambda labs: {"inspiration4_labs.csv": labs,
                                            "inspiration4_change.csv": inspiration4_change(labs)})(inspiration4()),

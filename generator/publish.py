@@ -17,6 +17,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="normal", choices=SCENARIOS)
     ap.add_argument("--crew", default="cm1")
+    ap.add_argument("--preset", default="station", help="station, moon, mars_transit, mars_surface")
     ap.add_argument("--days", type=int, default=40)
     ap.add_argument("--speed", type=float, default=10.0, help="seconds per simulated day")
     ap.add_argument("--seed", type=int, default=7)
@@ -30,7 +31,7 @@ def main() -> None:
     client.loop_start()
 
     rng = np.random.default_rng(a.seed)
-    df = simulate(make_profile(rng), a.days, rng, SCENARIOS[a.scenario])
+    df = simulate(make_profile(rng, a.preset), a.days, rng, SCENARIOS[a.scenario])
     msgs = to_readings(a.crew, df)
     for _, day_msgs in itertools.groupby(msgs, key=lambda m: m["ts"]):
         for m in day_msgs:

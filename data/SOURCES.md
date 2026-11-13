@@ -85,7 +85,8 @@ reaches the app carries a `provenance` label: `real` (taken directly from a data
 - EDA CO2 is in ppm: divide by ~1316 for mmHg (at 1 atm). Median across RR-3 is ~3600 ppm ≈ 2.8 mmHg.
   The first readings of a mission can sit at a flat 2000.0, which looks like a fill value: drop
   flat runs before computing a baseline. The series is labelled ISS (vs ground control) but comes
-  from rodent-habitat missions: confirm it is cabin air, not inside the habitat.
+  from rodent-habitat missions. Most likely ISS cabin telemetry (levels match published cabin CO2;
+  ground controls replicate the cabin), but the EDA docs do not say so explicitly.
 - RadLab DosTel coverage ends mid-April 2022; earlier windows (2019–2021) also work if more history is needed.
 - BIDSleep: cite the dataset and Song et al. (IEEE TBME 2025); split by subject, not night. Check its licence file in `data/raw/bidsleep/`.
 - RadLab API syntax: `?spacecraft=ISS&instrument=DosTel&timestamp%3E=...&timestamp%3C...&<column>&format=csv`. Bare key = return column, `key=value` = filter.
@@ -100,10 +101,11 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | --- | --- | --- |
 | `bidsleep_nights.csv` | BIDSleep | Per night, expert labels. Sleep efficiency = sleep time / time in bed (Unknown epochs excluded). Resting HR = lowest 30-min mean during sleep (nocturnal, Garmin-style). |
 | `bidsleep_calibration.csv` | BIDSleep | Mean, within-person night-to-night SD, between-person SD, lag-1 persistence (consecutive nights only, 64 pairs: rough). **Written into `contract/signals.yaml`.** |
-| `radlab_daily_dose.csv` | RadLab | Time-weighted daily absorbed dose (µGy/day) per DosTel detector. **Cleaning rules pending team review.** |
+| `radlab_dose_calibration.csv` | RadLab | Daily absorbed dose in mGy: mean 0.285, day-to-day SD 0.0158 (5.5%), spread between detector locations 0.0255, persistence −0.05. **Written into `contract/signals.yaml` as `dose_mgy`.** |
+| `radlab_daily_dose.csv` | RadLab | Time-weighted daily absorbed dose (µGy/day) per DosTel detector. Method approved (gaps capped at 5 min, day needs ≥20 h). |
 | `eda_co2_daily.csv` | EDA | Daily CO2 in mmHg after dropping <1000/>10000 ppm and ≥1 h flat runs. Results identical for flat-run 30 min/1 h/2 h and low cut 800/1000/1200 ppm. |
 | `eda_co2_calibration.csv` | EDA | Mean, within-mission day-to-day SD, between-mission SD, lag-1 persistence. **Written into `contract/signals.yaml`.** |
-| `inspiration4_labs.csv`, `inspiration4_change.csv` | Inspiration4 | All lab values, tidy; % change R+1 vs pre-flight mean. **Definition pending team review.** |
+| `inspiration4_labs.csv`, `inspiration4_change.csv` | Inspiration4 | All lab values, tidy; % change R+1 vs mean of the three pre-flight samples. Definition approved. |
 
 ## Published values used in the simulator
 
@@ -114,6 +116,7 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | Sleep debt: reaction lapses | +14 percentage points at day 14, curve t^0.78, extrapolated past day 14 | Van Dongen et al. 2003, *SLEEP* 26:117, 4 h group (Fig 1A, θ = 0.78) |
 | Sleep debt: mood | −1.7 at day 14, curve t^0.24 (sleepiness used as mood proxy) | Van Dongen et al. 2003, SSS ~1 point of 7, θ = 0.24 |
 | CO2 creep size | +1.2 mmHg above cabin's own level | Plan 6.2; symptom link: Law et al. 2014, *J Occup Environ Med* 56:477 |
+| Preset dose levels and quality factors | Station 0.285 mGy/day (RadLab); Moon 0.32 (Zhang 2020, verify); Mars transit 0.48, surface 0.21 (Zeitlin 2013, Hassler 2014). Quality factors 2.0 / 4.3 / 3.8 / 3.05 (verify) | `contract/presets.yaml` |
 | ISS sleep reference | 6.09 h/night on ISS (our BIDSleep calibration: 6.25 h) | Barger et al. 2014, *Lancet Neurology* |
 
 Conversion note: Van Dongen counts lapses (RT > 500 ms) per 10-min PVT (~100 stimuli), so +14 lapses

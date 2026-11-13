@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from contract.schema import load_signals
+from contract.schema import load_presets, load_signals
 
 BASELINE_DAYS = 14
 
@@ -62,9 +62,18 @@ SCENARIOS: dict[str, Scenario] = {
 }
 
 
-def make_profile(rng: np.random.Generator) -> dict[str, float]:
-    """One astronaut's personal baseline means."""
-    return {s["name"]: s["sim_mean"] + rng.normal(0, s["person_sd"]) for s in load_signals()}
+def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str, float]:
+    """One astronaut's personal baseline means. Dose is scaled to the mission preset's level, keeping
+    each astronaut's own offset (personal dosimeter), so crew differ independently of each other."""
+    p = load_presets()[preset]
+    prof = {}
+    for s in load_signals():
+        mean, spread = s["sim_mean"], s["person_sd"]
+        if s["name"] == "dose_mgy":
+            scale = p["dose_mgy_day"] / mean
+            mean, spread = mean * scale, spread * scale
+        prof[s["name"]] = mean + rng.normal(0, spread)
+    return prof
 
 
 def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
@@ -79,8 +88,9 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         noise[0] = rng.normal(0, sd)
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
-        # log: true -> variation is multiplicative (sd/mean in log space); never negative
-        x = mean * np.exp(noise / mean) if s.get("log") else mean + noise
+        # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
+        # so it scales with each astronaut's or preset's level and never goes negative
+        x = mean * np.exp(noise / s["sim_mean"]) if s.get("log") else mean + noise
         eff = scenario.effects.get(name)
         if eff:
             t = np.clip(np.arange(n_days) - scenario.onset_day + 1, 0, None) / eff.ramp_days
