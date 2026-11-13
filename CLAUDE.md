@@ -36,7 +36,9 @@ If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run python data/validate.py` — simulator vs the real data (also run by `tests/test_validation.py`)
 - `uv run uvicorn model.service:app --port 8001`
-- `uv run uvicorn core.app:app --port 8000` — core service (env `AURA_DB`, `AURA_MQTT_HOST`, `AURA_MQTT_PORT`, `AURA_MODEL_URL`); works without a broker or model
+- `uv run uvicorn core.app:app --port 8000` — core service (env `AURA_DB`, `AURA_MQTT_HOST`, `AURA_MQTT_PORT`, `AURA_MODEL_URL`); works without a broker or model.
+  Run one core per broker: every core connects as MQTT client `aura-core`, so a second one (e.g. local + compose)
+  keeps disconnecting the first and readings split between two databases
 - `docker compose up --build` — broker :1883, core :8000, model :8001 (needs `artifacts/`)
 - `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo;
   use `--seed 12` (tests pin it: normal raises nothing, each scenario raises only its own pattern)
