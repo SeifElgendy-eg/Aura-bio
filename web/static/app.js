@@ -515,6 +515,7 @@ function updateUI() {
   if (!telemetryData) return;
   updateHotspotStatuses();
   renderAlerts();
+  renderScores();
   updateUrgentHudBanner();
   checkAudioAlerts(liveAlerts(telemetryData.alerts));
   renderTelemetryList();
@@ -561,6 +562,64 @@ function updateHotspotStatuses() {
       pin.className = `system-pin status-${worst}${isFocused ? ' is-active-focus' : ''}`;
     }
   });
+}
+
+// --- Risk scores (FR-14 anomaly model, FR-15 immune-risk score) ---
+// shortcut: copy of the contract's model-signal order, only needed if the model returns lists instead of dicts
+const MODEL_SIGNALS = ['resting_hr_bpm', 'rmssd_ms', 'bp_systolic_mmhg', 'sleep_duration_h', 'sleep_efficiency_pct',
+  'reaction_lapses_pct', 'mood_score', 'cabin_co2_mmhg', 'exercise_completion_pct', 'dose_mgy'];
+const asEntries = (x, names) => (Array.isArray(x) ? x.map((v, i) => [names[i] || `#${i + 1}`, v]) : Object.entries(x || {}));
+const nameOf = sig => SIGNAL_NAMES[sig] || sig;
+
+function scoreCard(title, value, level, gauge, lines) {
+  return `
+    <div class="score-card ${level}">
+      <div class="score-card-title">${title}</div>
+      <div class="score-value">${value}</div>
+      ${gauge}
+      ${lines.filter(Boolean).map(l => `<div class="score-note">${l}</div>`).join('')}
+    </div>`;
+}
+
+function renderScores() {
+  const el = document.getElementById('score-panel');
+  if (!el || !telemetryData) return;
+  const a = telemetryData.anomaly || {};
+  const ir = telemetryData.immune_risk || {};
+
+  let anomaly;
+  if (!a.available) {
+    anomaly = scoreCard('Anomaly (model)', '—', 'stale', '', [a.reason || 'model service unavailable']);
+  } else {
+    const raw = asEntries(a.scores, ['2-day autoencoder', 'EWMA']);
+    const peak = Math.max(0, ...raw.map(([, v]) => v));
+    // gauge 0..2, alarm line at 1: shows the rise even while the headline score is still 0
+    const gauge = `<div class="score-bar" title="highest model score ${peak.toFixed(2)}; alarm at 1">
+        <div class="score-bar-fill" style="width: ${Math.min(100, peak * 50)}%"></div>
+        <div class="score-bar-mark"></div></div>`;
+    const top = asEntries(a.contributions, MODEL_SIGNALS).sort((x, y) => y[1] - x[1]).slice(0, 3)
+      .map(([k, v]) => `${nameOf(k)} ${Math.round(v * 100)}%`).join(', ');
+    const drift = asEntries(a.drift, MODEL_SIGNALS).filter(([, v]) => v)
+      .map(([k, v]) => `${nameOf(k)} ${v > 0 ? '↑' : '↓'}`).join(', ');
+    anomaly = scoreCard('Anomaly (model)', (a.score ?? 0).toFixed(2), a.score >= 1 ? 'amber' : 'green', gauge, [
+      raw.map(([k, v]) => `${k}: ${(+v).toFixed(2)}`).join(' · '),
+      top && `Driven by: ${top}`,
+      drift && `Drifting: ${drift}`,
+      a.score >= 1 ? 'Unusual for this astronaut' : 'Within this astronaut\'s normal',
+    ]);
+  }
+
+  const inputs = Object.entries(ir.inputs || {}).filter(([, z]) => z >= 0.05)
+    .map(([k, z]) => `${nameOf(k)} ${z.toFixed(1)} SD`).join(', ');
+  const immune = ir.score == null
+    ? scoreCard('Immune risk', '—', 'stale', '', ['Waiting for lab baselines (first 28 days)'])
+    : scoreCard('Immune risk', `${Math.round(ir.score)}<span class="score-unit">/100</span>`, 'neutral',
+      `<div class="score-bar"><div class="score-bar-fill" style="width: ${ir.score}%"></div></div>`,
+      [inputs && `Off baseline: ${inputs}`,
+        (ir.not_measured || []).length && `Not measured: ${ir.not_measured.join(', ')}`,
+        'Placeholder weights']);
+
+  el.innerHTML = anomaly + immune;
 }
 
 // alerts that should still sound and fill the banner: active and not yet acknowledged
@@ -619,6 +678,7 @@ function renderAlerts() {
   badge.textContent = [live && `${live} ACTIVE`, waiting && `${waiting} TO ACKNOWLEDGE`].filter(Boolean).join(' · ')
     || `${alerts.length} ACKNOWLEDGED`;
   badge.className = live ? 'panel-count-badge badge-urgent-pulse' : 'panel-count-badge';
+  badge.style.color = live ? '' : 'var(--color-text-dim)';
 
   list.innerHTML = alerts.map((alert) => `
     <div class="pattern-card ${alert.level === 'red' ? 'level-red' : 'level-amber'}${alert.active ? '' : ' resolved'}">

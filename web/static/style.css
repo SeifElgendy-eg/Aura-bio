@@ -2008,3 +2008,76 @@ input[type="range"]::-webkit-slider-thumb {
     border: none;
   }
 }
+
+/* --- Risk scores (FR-14, FR-15) --- */
+.score-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.score-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-left-width: 5px;
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-width: 0;
+}
+
+.score-card.green { border-left-color: var(--color-status-green); }
+.score-card.amber { border-left-color: var(--color-status-amber); }
+.score-card.stale { border-left-color: var(--color-status-stale); }
+.score-card.neutral { border-left-color: var(--color-signal-primary); }
+
+.score-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.score-value {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 30px;
+  margin: 2px 0 6px;
+}
+
+.score-unit {
+  font-size: 15px;
+  color: var(--color-text-dim);
+}
+
+.score-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-border-subtle);
+  margin-bottom: 6px;
+}
+
+.score-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-signal-primary);
+}
+
+.score-bar-mark {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--color-status-amber);
+}
+
+.score-note {
+  font-size: 13px;
+  color: var(--color-text-dim);
+  line-height: 1.4;
+}
+
+@media (max-width: 520px) {
+  .score-grid { grid-template-columns: 1fr; }
+}
