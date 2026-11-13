@@ -31,6 +31,7 @@ class Effect:
 class Scenario:
     name: str
     onset_day: int = BASELINE_DAYS + 7
+    days: int = 40  # default run length for this scenario
     effects: dict[str, Effect] = field(default_factory=dict)
     drop_signals: list[str] = field(default_factory=list)  # stop publishing (sensor loss)
 
@@ -59,6 +60,16 @@ SCENARIOS: dict[str, Scenario] = {
         "rmssd_ms": Effect("mul", -0.1, 7),
     }),
     "sensor_loss": Scenario("sensor_loss", drop_signals=["resting_hr_bpm", "rmssd_ms"]),
+    # Long-duration immune dysregulation, ramping in over 60 days (NK drop measured at flight day 90,
+    # Bigley et al. 2019). Sizes: lymphocytes -27%, IL-6 +90% (Inspiration4 average, day after
+    # landing); NK activity -50% (Bigley 2019). Shedding chance per weekly sample 5% -> 20%: derived,
+    # not published (Mehta et al. 2017: 61% of ISS crew shed at some point). Immune signals only.
+    "immune": Scenario("immune", days=90, effects={
+        "lymphocytes_per_ul": Effect("mul", -0.27, 60),
+        "il6_pg_ml": Effect("mul", 0.90, 60),
+        "nk_activity_pct": Effect("mul", -0.50, 60),
+        "viral_pcr_positive": Effect("set", 0.20, 60),
+    }),
 }
 
 
@@ -110,9 +121,9 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         noise[0] = rng.normal(0, sd)
         for t in range(1, n_days):
             noise[t] = ar * noise[t - 1] + eps[t]
-        if "p" in s:  # binary yes/no signal (e.g. viral shedding): independent draw per day
-            x = (rng.random(n_days) < s["p"]).astype(float)
-            x = apply_effect(x, mean, scenario, name)
+        if "p" in s:  # binary yes/no signal (e.g. viral shedding): effects change the chance, not the 0/1
+            p = apply_effect(np.full(n_days, s["p"]), s["p"], scenario, name)
+            x = (rng.random(n_days) < p).astype(float)
         else:
             # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
             # so it scales with each astronaut's or preset's level and never goes negative

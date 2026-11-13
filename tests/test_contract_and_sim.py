@@ -72,3 +72,20 @@ def test_labs_weekly_and_plausible():
     assert (lab.dropna() > 0).all() and (df["il6_pg_ml"].dropna() > 0).all()
     assert set(df["viral_pcr_positive"].dropna().unique()) <= {0.0, 1.0}
     assert all(s not in model_signals() for s in ["lymphocytes_per_ul", "il6_pg_ml"])
+
+
+def test_immune_scenario_sizes():
+    sc = SCENARIOS["immune"]
+    pre, post = [], []
+    shed_pre, shed_post = [], []
+    rng = np.random.default_rng(3)
+    for _ in range(300):
+        df = simulate(make_profile(rng), sc.days, rng, sc)
+        lab = df["lymphocytes_per_ul"].dropna()
+        pre.append(lab[lab.index < sc.onset_day].mean())
+        post.append(lab[lab.index >= sc.onset_day + 60].mean())      # full effect
+        v = df["viral_pcr_positive"].dropna()
+        shed_pre.append(v[v.index < sc.onset_day].mean())
+        shed_post.append(v[v.index >= sc.onset_day + 60].mean())
+    assert abs(np.mean(post) / np.mean(pre) - 0.73) < 0.05          # lymphocytes -27%
+    assert np.mean(shed_pre) < 0.10 and abs(np.mean(shed_post) - 0.20) < 0.06

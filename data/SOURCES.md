@@ -120,6 +120,7 @@ Beat-to-beat in-flight HRV, reaction-test results, mood: no open astronaut data.
 | Lymphocytes | level 2,679/µL (Inspiration4 pre-flight); sample-to-sample 10.1%, between people 23.9% | Coskun et al. 2020, *Clin Chem Lab Med* 58:25 |
 | IL-6 | level 3.7 pg/mL (Inspiration4); sample-to-sample 30% (published 25–50%); between people 21% (Inspiration4) | e.g. PubMed 9676390 (48%), others 27–30% |
 | NK activity, viral shedding | % of own baseline (spread 10%: guess); shedding chance 5% per sample (guess). Flight findings for a future immune scenario: NK −50% at flight day 90 (Bigley et al. 2019); 61% of ISS crew shed herpesviruses (Mehta et al. 2017) | |
+| Immune scenario (`immune`, 90 days) | From day 21, ramping over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4 averages), NK activity −50% (Bigley et al. 2019, flight day 90); viral shedding chance per weekly sample 5% → 20% (derived, not published; Mehta et al. 2017: 61% of ISS crew shed) | |
 | Not simulated (no usable data) | sIgA (rises in flight, Agha et al. 2020), vitamin D (falls, Smith/Zwart), calories (74–80% of recommended), body mass (falls), fluid | future work |
 | ISS sleep reference | 6.09 h/night on ISS (our BIDSleep calibration: 6.25 h) | Barger et al. 2014, *Lancet Neurology* |
 

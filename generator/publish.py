@@ -19,7 +19,7 @@ def main() -> None:
     ap.add_argument("--scenario", default="normal", choices=SCENARIOS)
     ap.add_argument("--crew", default="cm1")
     ap.add_argument("--preset", default="station", help="station, moon, mars_transit, mars_surface")
-    ap.add_argument("--days", type=int, default=40)
+    ap.add_argument("--days", type=int, default=None, help="default: the scenario's own length")
     ap.add_argument("--speed", type=float, default=10.0, help="seconds per simulated day")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--replay", action="store_true",
@@ -35,7 +35,8 @@ def main() -> None:
     client.loop_start()
 
     rng = np.random.default_rng(a.seed)
-    df = simulate(make_profile(rng, a.preset), a.days, rng, SCENARIOS[a.scenario])
+    days = a.days or SCENARIOS[a.scenario].days
+    df = simulate(make_profile(rng, a.preset), days, rng, SCENARIOS[a.scenario])
     prov = "simulated"
     if a.replay:
         df, prov = apply_replay(df, a.crew, SCENARIOS[a.scenario], a.co2_source, a.preset)

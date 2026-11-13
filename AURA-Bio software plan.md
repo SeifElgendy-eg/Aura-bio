@@ -18,6 +18,7 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 6.2 | CO₂ creep and sleep debt now relative to each astronaut's or cabin's own baseline; sleep debt follows Van Dongen et al. 2003; expected results updated |
 | 5.4 (new) | Real-data replay of ISS CO₂ and dose |
 | 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
+| 6.2 | New immune dysregulation scenario |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
 | 8.6 (new) | Papers used for simulator values |
@@ -394,6 +395,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Deconditioning | Resting heart rate up 12 bpm; exercise completion 70%; slow recovery | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
+| Immune dysregulation (90 days) | From day 21, over 60 days: lymphocytes −27%, IL-6 +90% (Inspiration4), NK activity −50% (Bigley et al. 2019); viral shedding in 20% of weekly samples (from 5%) | Immune system amber/red on the weekly lab values; immune-risk score rises. Lab values are not model inputs, so the anomaly score does not react |
 
 ### 6.3 Model performance
 
