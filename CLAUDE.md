@@ -4,8 +4,8 @@ Astronaut health monitoring for NASA Space Apps 2026 (48-h build, Nov 14–15). 
 member against their own baseline and alerts on cross-system patterns. The full plan is the team's
 "AURA-Bio software plan" PDF; section refs below (e.g. "plan 4.3") point into it.
 
-This repo holds the **data + model** workstream and the **core service** (backend). Firmware (Wokwi) and the
-app (no longer Flutter, unlike the plan) are other workstreams and may land here later as `firmware/`, `app/`.
+This repo holds the **data + model** workstream, the **core service** (backend) and the **web console** (`web/`, replaces
+the plan's Flutter app). Firmware (Wokwi) is on the `hardware` branch.
 
 ## Layout
 - `contract/` — shared contract, changed only by team agreement. `signals.yaml` (names include
@@ -24,6 +24,8 @@ app (no longer Flutter, unlike the plan) are other workstreams and may land here
   window has passed: daily signals `baseline_days` 14, weekly labs `lab_baseline_days` 28), alert (per episode of a pattern,
   or of a signal red by a *published* threshold; stays until acknowledged), report; invalid messages go to `reject`.
   No migrations: after a schema change delete `core.db` (or `docker compose down -v`).
+- `web/static/` — web console, served by the core at `/`. No server of its own: the adapter at the top of `app.js` maps the
+  core's status onto the UI. Demo: `POST /scenario/<name>?speed=` replays a scenario into the core without a broker.
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).

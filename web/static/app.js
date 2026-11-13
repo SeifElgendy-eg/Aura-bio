@@ -27,14 +27,125 @@ let currentFocusedOrganId = null;
 let currentTopAlert = null;
 let activeBiomarkerFilter = 'ALL';
 
-const ALL_BIOMARKER_ORDER = [
-  'pvt_lapses', 'sleep_hours', 'mood_score',
-  'salivary_siga', 'nk_activity',
-  'resting_hr', 'rmssd_ms', 'bp_systolic',
-  'hydration_fluid_ml', 'body_mass_loss',
-  'exercise_completion', 'ntx_resorption',
-  'cabin_co2_mmhg', 'cumulative_dose_mgy'
+// --- Core service adapter: the core (core/app.py) owns readings, baselines, bands and alerts; this maps its
+// /crew/<id>/status onto the shape the UI below draws. Signal names are the contract's (contract/signals.yaml).
+const CREW = 'cm1';
+const SYSTEMS = [
+  { id: 'neuro', name: 'Neurocognitive', icon: '🧠', description: 'Sleep, vigilance (reaction test) and mood',
+    biomarkers: ['sleep_duration_h', 'sleep_efficiency_pct', 'reaction_lapses_pct', 'mood_score'] },
+  { id: 'mucosal_immune', name: 'Immune', icon: '🛡️', description: 'Weekly labs: lymphocytes, NK activity, IL-6, viral PCR',
+    biomarkers: ['lymphocytes_per_ul', 'nk_activity_pct', 'il6_pg_ml', 'viral_pcr_positive'] },
+  { id: 'cardio', name: 'Cardiovascular', icon: '❤️', description: 'Resting heart rate, HRV and blood pressure',
+    biomarkers: ['resting_hr_bpm', 'rmssd_ms', 'bp_systolic_mmhg'] },
+  { id: 'metabolic', name: 'Metabolic & Nutrition', icon: '💧', description: 'No metabolic signal is measured yet',
+    biomarkers: [] },
+  { id: 'musculoskeletal', name: 'Musculoskeletal', icon: '🦴', description: 'Exercise countermeasure completion',
+    biomarkers: ['exercise_completion_pct'] },
+  { id: 'environment', name: 'Habitat & Radiation', icon: '🪐', description: 'Cabin CO₂, daily and cumulative radiation dose',
+    biomarkers: ['cabin_co2_mmhg', 'dose_mgy', 'cumulative_dose_msv'] },
 ];
+const ALL_BIOMARKER_ORDER = SYSTEMS.flatMap(x => x.biomarkers);
+const SIGNAL_NAMES = {
+  sleep_duration_h: 'Sleep Duration', sleep_efficiency_pct: 'Sleep Efficiency', reaction_lapses_pct: 'Reaction-Test Lapses',
+  mood_score: 'Mood', lymphocytes_per_ul: 'Lymphocytes', nk_activity_pct: 'NK Cell Activity', il6_pg_ml: 'IL-6',
+  viral_pcr_positive: 'Viral PCR (EBV/CMV/VZV)', resting_hr_bpm: 'Resting Heart Rate', rmssd_ms: 'HRV (RMSSD)',
+  bp_systolic_mmhg: 'Systolic Blood Pressure', exercise_completion_pct: 'Exercise Completion',
+  cabin_co2_mmhg: 'Cabin CO₂', dose_mgy: 'Daily Radiation Dose', cumulative_dose_msv: 'Cumulative Effective Dose',
+};
+const UNITS = { bpm: 'bpm', ms: 'ms', mmhg: 'mmHg', h: 'h', pct: '%', ul: '/µL', ml: 'pg/mL', mgy: 'mGy', msv: 'mSv',
+  score: '/10', positive: '' };
+const PRESET_NAMES = { station: 'ISS Low Earth Orbit', moon: 'Lunar Surface', mars_transit: 'Mars Transit',
+  mars_surface: 'Mars Surface' };
+let presetCatalog = {};
+const signalHistory = {};  // signal -> [{time, value}], seeded from the trend endpoint, extended by live pushes
+
+const round2 = v => (v == null || Number.isNaN(v) ? null : Math.round(v * 100) / 100);
+const systemOfSignal = sig => (SYSTEMS.find(x => x.biomarkers.includes(sig)) || {}).id;
+
+function boundsOf(sig, e) {
+  const base = e.baseline_mean, sd = e.baseline_sd;
+  const b = { baseline: round2(base), baseline_min: round2(base - sd), baseline_max: round2(base + sd),
+    amber_low: null, amber_high: null, red_low: null, red_high: null,
+    unit: UNITS[sig.split('_').pop()] ?? '', expected_interval_s: 86400 };
+  for (const rule of [].concat(e.rule || [])) {
+    const up = rule.direction === 'above';
+    const at = t => (t == null ? null : rule.kind === 'abs' ? t : base == null ? null
+      : rule.kind === 'delta' ? base + (up ? t : -t) : base * (1 + (up ? t : -t) / 100));
+    for (const lvl of ['amber', 'red']) {
+      const v = round2(at(rule[lvl]));
+      if (v == null) continue;
+      const key = `${lvl}_${up ? 'high' : 'low'}`;
+      // several rules on one side: keep the one that triggers first
+      b[key] = b[key] == null ? v : (up ? Math.min(b[key], v) : Math.max(b[key], v));
+    }
+  }
+  return b;
+}
+
+function presetView(id, p) {
+  const d = p.one_way_delay_s;
+  return { id, name: PRESET_NAMES[id] || id, alert_wording: p.alert_wording,
+    delay: d < 1 ? 'Real time' : d < 60 ? `${d} s` : `~${Math.round(d / 60)} min`,
+    dose_rate: `${p.dose_mgy_day} mGy/day` };
+}
+
+function alertView(a) {
+  const fired = a.fired || {};
+  return {
+    id: String(a.alert_id), crew_id: CREW, level: a.level, ts: a.started_ts,
+    pattern_name: a.id ? a.name : `${SIGNAL_NAMES[a.signal] || a.signal} red`,
+    signals_fired: Object.keys(fired),
+    involved_systems: [...new Set(Object.keys(fired).map(systemOfSignal).filter(Boolean))],
+    medical_reason: Object.entries(fired).map(([k, f]) => `${SIGNAL_NAMES[k] || k}: ${round2(f.value)} (${f.band})`)
+      .join(' · ') + ((a.not_measured || []).length ? ` · not measured: ${a.not_measured.join(', ')}` : ''),
+    citation: a.citation || [].concat(a.rule || []).map(r => r.citation).join('; '),
+    is_published: a.basis ? a.basis === 'published' : true,
+    response_crew: [a.response_crew || (a.response || {}).crew].filter(Boolean),
+    response_medical: [a.response_system || (a.response || {}).system, a.action].filter(Boolean),
+  };
+}
+
+function toTelemetry(status, overview) {
+  const signals = (status && status.signals) || {};
+  const biomarkers = {};
+  for (const sig of ALL_BIOMARKER_ORDER) {
+    const e = signals[sig] || {};
+    const reading = e.value == null ? null : { crew_id: CREW, signal: sig, value: e.value, ts: e.ts,
+      status: e.band, provenance: e.provenance, source: 'core' };
+    const h = (signalHistory[sig] = signalHistory[sig] || []);
+    if (reading && reading.ts && (!h.length || h[h.length - 1].ts !== reading.ts)) {
+      h.push({ ts: reading.ts, time: reading.ts.slice(5, 10), value: reading.value });
+      if (h.length > 60) h.shift();
+    }
+    biomarkers[sig] = { id: sig, name: SIGNAL_NAMES[sig] || sig, system_id: systemOfSignal(sig), reading,
+      bounds: boundsOf(sig, e), history: h };
+  }
+  const m = status && status.mission;
+  return {
+    biomarkers, systems: SYSTEMS,
+    alerts: ((status && status.alerts) || []).map(alertView),
+    mission: m ? presetView(m.name, m) : currentMission,
+    presets: Object.fromEntries(Object.entries(presetCatalog).map(([id, p]) => [id, presetView(id, p)])),
+    crew: (overview || []).map(c => ({ id: c.crew_id, name: c.crew_id.toUpperCase(), role: 'Crew member',
+      status: c.worst, anomaly: c.anomaly_score || 0, alerts: c.alerts.length })),
+    anomaly: status && status.anomaly, immune_risk: status && status.immune_risk,
+    disclaimer: status && status.disclaimer,
+  };
+}
+
+async function loadTelemetry(status) {
+  const getJson = url => fetch(url).then(r => (r.ok ? r.json() : null));
+  const [st, overview] = await Promise.all([status ? status : getJson(`/crew/${CREW}/status`), getJson('/crew/overview')]);
+  telemetryData = toTelemetry(st, overview);
+  if (telemetryData.mission) currentMission = telemetryData.mission;
+}
+
+async function seedHistory() {
+  await Promise.all(ALL_BIOMARKER_ORDER.filter(s => s !== 'cumulative_dose_msv').map(async sig => {
+    const r = await fetch(`/crew/${CREW}/signal/${sig}?days=30`);
+    if (r.ok) signalHistory[sig] = (await r.json()).points.map(p => ({ ts: p.ts, time: p.ts.slice(5, 10), value: p.value }));
+  }));
+}
 
 // --- Native Audio Telemetry Cues (Web Audio API - Ponytail standard zero-dependency) ---
 let audioEnabled = true;
@@ -305,9 +416,11 @@ async function init() {
     grid.setAttribute('data-tablet-view', 'anatomy');
   }
   try {
-    const res = await fetch('/api/telemetry');
-    telemetryData = await res.json();
-    currentMission = telemetryData.mission;
+    const mission = await fetch('/mission').then(r => r.json());
+    presetCatalog = mission.presets;
+    currentMission = presetView(mission.name, mission);
+    await seedHistory();
+    await loadTelemetry();
     updateMissionHeader();
     renderHotspots();
     setupWebSocket();
@@ -321,14 +434,12 @@ function setupWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-  socket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'telemetry_update') {
-      telemetryData = data;
-      if (data.mission) currentMission = data.mission;
-      updateMissionHeader();
-      updateUI();
-    }
+  socket.onmessage = async (event) => {
+    const status = JSON.parse(event.data);
+    if (!status || status.crew_id !== CREW) return;
+    await loadTelemetry(status);
+    updateMissionHeader();
+    updateUI();
   };
 
   socket.onclose = () => {
@@ -1377,10 +1488,11 @@ function openMissionModal() {
 async function selectMissionPreset(presetId) {
   playAckCue();
   try {
-    const res = await fetch(`/api/mission/preset/${presetId}`, { method: 'POST' });
+    const res = await fetch('/mission', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset: presetId }) });
     const data = await res.json();
-    if (data && data.preset) {
-      currentMission = data.preset;
+    if (res.ok) {
+      currentMission = presetView(data.name, data);
       updateMissionHeader();
       if (currentFocusedOrganId === 'environment') {
         refreshOrganDrawerEnvironment();
@@ -1395,7 +1507,8 @@ async function selectMissionPreset(presetId) {
 async function triggerScenario(id) {
   playAckCue();
   try {
-    await fetch(`/api/scenario/${id}`, { method: 'POST' });
+    for (const k in signalHistory) delete signalHistory[k];  // the core wipes the crew member's readings too
+    await fetch(`/scenario/${id}`, { method: 'POST' });
   } catch (err) {
     console.error('Failed to trigger scenario', err);
   }
@@ -1419,23 +1532,20 @@ function closeModal(event, modalId) {
 
 async function submitCheckin(e) {
   e.preventDefault();
-  const lapses = pvtState.lapses;
   const mood = parseFloat(document.getElementById('inp-mood').value);
-  const hydration = parseFloat(document.getElementById('inp-hydration').value);
   const exercise = parseFloat(document.getElementById('inp-exercise').value);
 
+  // the core counts lapses (>= 355 ms, PVT-B) and scores mood; no ts = the crew member's current simulated day.
+  // Hydration has no signal in the contract, so it is not sent.
   const payload = {
-    crew_id: 'cm1',
-    pvt_mean_reaction_time_ms: pvtState.trials.length > 0 ? (pvtState.trials.reduce((a, b) => a + b, 0) / pvtState.trials.length) : 310.0,
-    pvt_lapses: lapses,
-    pvt_false_starts: 0,
-    mood_score: mood,
-    stress_score: 3.0,
-    hydration_ml: hydration,
-    exercise_minutes: exercise,
+    crew_id: CREW,
+    mood_answers: [mood],
+    // shortcut: 60 min of exercise = 100% completion, the console's old assumption; use the real prescription when known
+    values: { exercise_completion_pct: Math.min(100, (exercise / 60) * 100) },
   };
+  if (pvtState.trials.length) payload.reaction_times_ms = pvtState.trials;
 
-  await fetch('/api/checkin', {
+  await fetch('/checkin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

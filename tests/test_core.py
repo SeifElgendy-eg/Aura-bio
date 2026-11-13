@@ -349,3 +349,18 @@ def test_web_app_may_call_the_api(client):  # the web app runs on another origin
     r = client.options("/checkin", headers={"Origin": "http://localhost:5000", "Access-Control-Request-Method": "POST",
                                             "Access-Control-Request-Headers": "content-type"})
     assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "*"
+
+
+def test_demo_scenario_replays_into_the_core_and_page_is_served(client):  # FR-9
+    import time as _time
+    assert client.post("/scenario/nope").status_code == 422
+    assert client.post("/scenario/co2_creep?speed=0").json()["days"] == 40
+    deadline = _time.time() + 20
+    while _time.time() < deadline:
+        s = client.get("/crew/cm1/status")
+        if s.status_code == 200 and s.json()["ts"].startswith("2026-12-23"):  # day 39 of 40
+            break
+        _time.sleep(0.2)
+    assert {a["id"] for a in s.json()["alerts"] if a["id"]} == {"co2_performance"}  # demo seed 12
+    assert "AURA" in client.get("/").text and client.get("/static/app.js").status_code == 200
+    assert set(client.get("/mission").json()["presets"]["mars_transit"]) >= {"alert_wording", "one_way_delay_s"}

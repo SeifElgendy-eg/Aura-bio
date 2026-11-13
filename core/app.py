@@ -6,6 +6,7 @@ AURA_MODEL_URL (default http://localhost:8001).
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import math
@@ -14,15 +15,22 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import numpy as np
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime, BaseModel, Field
 
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
 from core import domain, model_client
 from core.store import Store
+from generator.sim import SCENARIOS, make_profile, simulate, to_readings
+
+WEB = Path(__file__).resolve().parent.parent / "web" / "static"
 
 log = logging.getLogger("aura.core")
 store: Store
@@ -166,8 +174,39 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
-# the web app is served from another port; any origin is fine for a local demo with simulated data
+# a web app served from another port may call the API; any origin is fine for a local demo with simulated data
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.mount("/static", StaticFiles(directory=WEB), name="static")
+replay: asyncio.Task | None = None
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(WEB / "index.html")
+
+
+@app.post("/scenario/{name}")
+async def run_scenario(name: str, crew_id: str = "cm1", seed: int = 12, speed: float = 10.0):
+    """FR-9, demo only: wipe the crew member and replay a simulated scenario straight into the core, one day per
+    `speed` seconds (same messages as generator.publish, so no broker is needed). A new call stops the last one."""
+    global replay
+    if name not in SCENARIOS:
+        raise HTTPException(422, f"unknown scenario {name}; choose from {list(SCENARIOS)}")
+    if replay:
+        replay.cancel()
+    store.clear(crew_id)
+    rng, sc = np.random.default_rng(seed), SCENARIOS[name]
+    msgs = to_readings(crew_id, simulate(make_profile(rng, mission()["name"]), sc.days, rng, sc))
+
+    async def run():
+        for _, day in itertools.groupby(msgs, key=lambda m: m["ts"]):
+            for m in day:
+                ingest(json.dumps(m), "scenario")
+            await broadcast(crew_id)
+            await asyncio.sleep(speed)
+
+    replay = asyncio.create_task(run())
+    return {"scenario": name, "crew_id": crew_id, "days": sc.days, "seed": seed, "seconds_per_day": speed}
 
 
 class CheckIn(BaseModel):
@@ -257,7 +296,7 @@ def trend(crew_id: str, signal: str, days: int = 30):
 @app.get("/mission")
 def get_mission():
     m = mission()
-    return {"name": m["name"], **m["preset"], "presets": list(load_presets())}
+    return {"name": m["name"], **m["preset"], "presets": load_presets()}
 
 
 @app.put("/mission")

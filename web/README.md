@@ -1,31 +1,13 @@
-# AURA-Bio Web Telemetry Console
+# AURA-Bio web console
 
-Interactive astronaut physiological telemetry console for NASA Space Apps 2026.
-
-## Overview
-A lightweight, zero-dependency aeromedical monitoring web platform simulating real-time physiological telemetry, cross-system anomaly inference, and clinical emergency protocol execution.
-
-## Key Features
-- **Spatial Physiological Anatomy Map:** Anatomical astronaut silhouette with interactive concentric reticles across 6 subsystems (Neurocognitive, Mucosal Immune, Cardiovascular, Metabolic, Musculoskeletal, and ECLSS).
-- **Dynamic Organ Zoom & Subsystem Carousel:** 1-tap organ detail inspection drawer with high-resolution anatomical vector visuals and quick-switch subsystem carousel.
-- **Micro-Telemetry Sparklines:** Real-time sliding SVG sparklines calculated directly from physiological telemetry history, color-coded to status with dual-bound excursion markers.
-- **Biomarker Subsystem Quick-Filters:** Filter telemetry by subsystem (`ALL`, `BREACHED`, `NEURO`, `CARDIO`, `IMMUNE`, `METAB`, `SKEL`, `ECLSS`).
-- **Clinical Actions & Protocols Modal:** Central pop-up emergency protocol widget with interactive crew checklists, Houston CAPCOM guidance, and peer-reviewed scientific citations.
-- **Aerospace Web Audio API Telemetry Cues:** Native zero-dependency sound synthesis for NASA Caution chimes (amber), emergency alarms (red), and tactile UI feedback.
-- **Psychomotor Vigilance Task (PVT-90) & Daily Check-in:** Real-time micro-sleep lapse detection, reaction latency recording, and subjective readiness reporting.
-- **Multi-Mission Environmental Profiles:** Pre-configured orbit telemetry presets for ISS LEO, Artemis Lunar Base, Mars Transit, and Mars Surface.
-
-## Tech Stack
-- **Backend:** FastAPI (Python 3.10+), Uvicorn, WebSockets, Pydantic
-- **Frontend:** Pure HTML5, Modern CSS (Design Tokens, Responsive Flex/Grid, Native Glassmorphism), Vanilla JavaScript ES6+
-- **Charting & Visuals:** Chart.js, Native Inline SVG Sparklines, Transparent Medical HUD Graphics
-
-## Quickstart
+Static HTML/CSS/JS served by the core service (no server of its own). Everything it shows comes from the core:
+`/crew/cm1/status` and the WebSocket `/ws` (readings, personal baselines, bands, alerts, anomaly and immune-risk
+scores), `/crew/<id>/signal/<name>` (trend history), `/crew/overview` (crew roster), `/mission` (presets),
+`/checkin` and `/scenario/<name>` (demo replay). The mapping from the core's status to what the UI draws is the
+adapter at the top of `static/app.js`; signal names are the contract's (`contract/signals.yaml`).
 
 ```bash
-cd web
-pip install -r requirements.txt
-uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+uv run uvicorn core.app:app --port 8000      # from the repo root
 ```
-
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in any modern browser (desktop or handheld tablet).
+Open http://localhost:8000 and pick a scenario (each replays the demo astronaut, seed 12, at 10 s per day;
+`POST /scenario/<name>?speed=0.5` for a faster run). All crew data is simulated; not a medical device.

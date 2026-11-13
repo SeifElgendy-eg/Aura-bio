@@ -8,4 +8,5 @@ COPY contract contract
 COPY core core
 COPY model model
 COPY generator generator
+COPY web/static web/static
 ENV PATH=/app/.venv/bin:$PATH
