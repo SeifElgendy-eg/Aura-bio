@@ -121,3 +121,21 @@ def test_log_signals_keep_stated_average():
             tol = max(0.02, 3 * s["person_sd"] / s["sim_mean"] / np.sqrt(1500))
             assert abs(df[s["name"]].mean() / s["sim_mean"] - 1) < tol, s["name"]
             assert (df[s["name"]].dropna() > 0).all(), s["name"]
+
+
+def test_spreads_match_and_caps_dont_pile_up():
+    from contract.schema import load_signals
+    rng = np.random.default_rng(6)
+    profiles = [make_profile(rng) for _ in range(4000)]
+    for s in load_signals():
+        if s.get("log") or "log_from" in s:            # person-to-person spread matches what's stated
+            got = np.std([p[s["name"]] for p in profiles])
+            assert s["person_sd"] == 0 or abs(got / s["person_sd"] - 1) < 0.15, s["name"]
+    df = pd.concat([simulate(p, 60, rng) for p in profiles[:1500]])
+    for name in ["sleep_efficiency_pct", "exercise_completion_pct"]:
+        assert (df[name] >= 100).mean() < 0.001, name                     # no pile-up at the cap
+    assert abs(df["sleep_efficiency_pct"].mean() - 91.8) < 0.5
+    assert abs(df["exercise_completion_pct"].mean() - 98) < 0.5
+    assert (df["mood_score"].isin([0, 10])).mean() < 0.001                 # logit: never on either end
+    base = pd.concat([simulate(p, BASELINE_DAYS, rng)["mood_score"] for p in profiles[:1500]], axis=1)
+    assert (base.std() > 0).all()                                          # no flat mood baselines

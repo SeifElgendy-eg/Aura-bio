@@ -20,7 +20,7 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | 5.2, 5.3 | Weekly lab signals: lymphocytes, IL-6, NK activity, viral shedding; weak-data signals listed as not monitored |
 | 6.2 | New immune dysregulation and solar particle event scenarios |
 | 8.6 | DOIs added; Jones 2022, Basner 2011 and the immune/PVT/exercise sources added |
-| 5.3 | Every value marked sourced, estimated or assumption; CO₂ floor 0.76 mmHg; shedding 3%, NK 14%, lapse spreads |
+| 5.3 | Distribution shapes fixed so no signal piles up at a limit; BP person spread 10; every value marked sourced, estimated or assumption; CO₂ floor 0.76 mmHg; shedding 3%, NK 14%, lapse spreads |
 | 5.3, 6.2 | Sleep, lapse and mood levels from ISS/PVT-B papers; sleep-debt mood effect −0.8 |
 | 6.3 (new) | Model performance measured over 200 simulated astronauts per scenario |
 | 1.3 | Event dates corrected to Saturday 14 – Sunday 15 November |
@@ -366,7 +366,7 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | Cabin CO₂ | 2.21 mmHg (min 0.76) | 0.46 | 0.50 (between cabins) | 0.87 | NASA EDA |
 | Daily absorbed dose (station) | 0.285 mGy | 5.5%, multiplicative | 0.026 (between detector locations; only 2) | −0.05 | NASA RadLab |
 | HRV (RMSSD) | 55 ms (estimate; daytime ECG average ~42) | 17 ms, multiplicative | 15 | 0.4 (assumption) | Bellenger et al. 2022; Nunan et al. 2010 |
-| Systolic BP | 117 mmHg | 9 mmHg | 13.4 (whole population, ages 7–98: wider than a screened crew) | 0.4 (assumption) | Ohasama study |
+| Systolic BP | 117 mmHg | 9 mmHg | 10 (estimated: Ohasama's 13.4 covers ages 7–98 and gave systolic < 90 on 4.5% of days) | 0.4 (assumption) | Ohasama study |
 | Reaction lapses | 7.5% of trials | 5.4 (derived) | 6.5 (estimated) | 0.4 (assumption) | Basner et al. 2011; PVT reliability ICC 0.59 |
 | Mood (0–10) | 6.2 | 0.6 (assumption) | 1.7 (estimated) | 0.4 (assumption) | Jones et al. 2022 (in-flight stress ~38/100, converted) |
 | Exercise completion | 98% (assumption) | 4 (assumption) | 2 (assumption) | 0.4 (assumption) | none; ISS crews log ~600 min/week, 168 ± 44 min aerobic (ENERGY study) |
@@ -375,7 +375,7 @@ Everything else stays simulated. When a scenario changes a replayed signal (e.g.
 | NK activity (weekly) | 100% of own baseline | 14% | — | — | TINKL study (123 adults); Bigley et al. 2019 for flight change |
 | Viral shedding (weekly) | 3% of samples positive | — | — | — | Mehta et al. 2017 (healthy controls) |
 
-Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model. Every value is sourced, estimated (derived, rough) or a documented assumption; the full list is in `data/SOURCES.md` ("Final status").
+Persistence and the night-to-night values for sleep and heart rate come from only 64 pairs of consecutive nights, so they are rough. Real cabin CO₂ wanders about 0.5 mmHg a day, so a slow CO₂ rise alone looks normal to the model. Signals that can't go below 0 (HRV, lapses, labs, dose) vary multiplicatively; sleep efficiency and exercise vary as a shortfall below 100%; mood varies on a logit scale between 0 and 10. None of them can pile up at a limit. Every value is sourced, estimated (derived, rough) or a documented assumption; the full list is in `data/SOURCES.md` ("Final status").
 
 ## 6. Verification
 

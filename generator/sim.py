@@ -85,6 +85,28 @@ SCENARIOS: dict[str, Scenario] = {
 }
 
 
+def log_sigma(spread: float, level: float) -> float:
+    """Log-scale sigma that gives a lognormal with this mean (level) and standard deviation (spread)."""
+    return float(np.sqrt(np.log1p((spread / level) ** 2)))
+
+
+def to_logit(x, s: dict):
+    lo, hi = s["logit"]
+    return np.log((x - lo) / (hi - x))
+
+
+def from_logit(u, s: dict):
+    lo, hi = s["logit"]
+    return lo + (hi - lo) / (1 + np.exp(-u))
+
+
+def logit_slope(s: dict) -> float:
+    """d logit / dx at the typical level: converts spreads in signal units to the logit scale."""
+    lo, hi = s["logit"]
+    m = s["sim_mean"]
+    return (hi - lo) / ((m - lo) * (hi - m))
+
+
 def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str, float]:
     """One astronaut's personal baseline means. Dose is scaled to the mission preset's level, keeping
     each astronaut's own offset (personal dosimeter), so crew differ independently of each other."""
@@ -95,9 +117,15 @@ def make_profile(rng: np.random.Generator, preset: str = "station") -> dict[str,
         if s["name"] == "dose_mgy":
             scale = p["dose_mgy_day"] / mean
             mean, spread = mean * scale, spread * scale
-        if s.get("log"):  # multiplicative offset: never <= 0, and keeps the stated average
-            cv = spread / s["sim_mean"]
-            prof[s["name"]] = mean * np.exp(rng.normal(0, cv) - cv**2 / 2)
+        if s.get("log"):  # multiplicative offset: never <= 0, keeps the stated average and spread
+            sig = log_sigma(spread, s["sim_mean"])
+            prof[s["name"]] = mean * np.exp(rng.normal(0, sig) - sig**2 / 2)
+        elif "log_from" in s:  # multiplicative SHORTFALL below a cap: approaches it, never sits on it
+            top, gap = s["log_from"], s["log_from"] - s["sim_mean"]
+            sig = log_sigma(spread, gap)
+            prof[s["name"]] = top - gap * np.exp(rng.normal(0, sig) - sig**2 / 2)
+        elif "logit" in s:  # bounded both ends: varies on the logit scale, never sits on either end
+            prof[s["name"]] = from_logit(to_logit(mean, s) + rng.normal(0, spread * logit_slope(s)), s)
         else:
             prof[s["name"]] = mean + rng.normal(0, spread)
     return prof
@@ -147,9 +175,15 @@ def simulate(profile: dict[str, float], n_days: int, rng: np.random.Generator,
         else:
             # log: true -> variation is multiplicative with a fixed relative size (sim_sd / sim_mean),
             # so it scales with each astronaut's or preset's level and never goes negative
-            if s.get("log"):  # -cv^2/2 keeps the average at `mean` (exp of a normal is biased up)
-                cv = sd / s["sim_mean"]
-                x = mean * np.exp(noise / s["sim_mean"] - cv**2 / 2)
+            if s.get("log"):  # -sig^2/2 keeps the average at `mean` (exp of a normal is biased up)
+                sig = log_sigma(sd, s["sim_mean"])
+                x = mean * np.exp(sig * noise / sd - sig**2 / 2)
+            elif "log_from" in s:  # shortfall below the cap varies multiplicatively
+                top = s["log_from"]
+                sig = log_sigma(sd, top - s["sim_mean"])
+                x = top - (top - mean) * np.exp(sig * noise / sd - sig**2 / 2)
+            elif "logit" in s:
+                x = from_logit(to_logit(mean, s) + noise * logit_slope(s), s)
             else:
                 x = mean + noise
             x = apply_effect(x, mean, scenario, name)
