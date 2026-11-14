@@ -42,5 +42,14 @@ and verify the resulting `model_version` before staging it in Compose.
 
 The standalone model container passed 43 finite runtime checks, including input validation,
 capping, stateless repeatability, artifact version and restart to healthy in 5518 ms. This is
-local simulated-data verification, not clinical validation. Combined root-stack acceptance
-with the updated core is a separate final check.
+local simulated-data verification, not clinical validation.
+
+The combined root stack passed acceptance on 2026-11-14: the built core's score matched a
+direct `/score` call to the unchanged image for the exact normalized 14-day input. With the
+model stopped, a new uncached window showed the score unavailable while CO₂ red bands and
+rule alerts continued; scoring recovered after the existing retry backoff. Raw game saves
+left health readings, persisted baselines, alerts and model output unchanged, survived core
+restart, and survived a 40-day built-in simulated scenario replay. The full merged regression
+suite passed 148 tests with one trained-local-artifact test skipped; the actual image was
+verified separately. Root Compose retains the standalone model's read-only rootfs, `/tmp`
+tmpfs, dropped capabilities and no-new-privileges setting.
