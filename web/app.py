@@ -28,6 +28,14 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
+LUNAR_HUB_DIR = BASE_DIR / "static" / "lunar-arcade-hub"
+if LUNAR_HUB_DIR.is_dir():
+    app.mount(
+        "/lunar-arcade-hub",
+        StaticFiles(directory=str(LUNAR_HUB_DIR), html=True),
+        name="lunar-arcade-hub",
+    )
+
 # --- Pydantic Data Models (plan.pdf Section 4.2 & Bounds Specification) ---
 
 class ThresholdBand(BaseModel):
