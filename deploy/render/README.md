@@ -4,7 +4,7 @@
 
 `FreeDemo.Dockerfile` runs the same core, verified model and MQTT broker inside one free web-service container. Only the core binds publicly; model and broker listen on loopback. Use the `free` plan, Frankfurt region, `integration/full-stack` branch and this Dockerfile. No admin token is configured, so protected writes fail closed; public safe showcases still work. This is a showcase, not durable mission hosting.
 
-Render sleeps free services after 15 idle minutes and may take about a minute to wake. SQLite and demo changes are lost on restart, redeploy or sleep; the same four simulated crews are re-seeded. Free quotas can suspend the service/builds. No payment method or paid upgrade is needed; do not add automatic keep-alive traffic or upgrade services. See [Render free-service limits](https://render.com/docs/free).
+Render sleeps free services after 15 idle minutes and may take about a minute to wake. SQLite and demo changes are lost on restart, redeploy or sleep; the same four simulated crews are re-seeded. Free quotas can suspend the service/builds. Render documents no-card free hosting, but on 14 November 2026 this workspace's service-creation API rejected even the `free` plan with HTTP 402 requiring payment information. Neither the paid Blueprint nor the free service was deployed. Do not add automatic keep-alive traffic or upgrade services. See [Render free-service limits](https://render.com/docs/free).
 
 ## Persistent paid deployment
 
