@@ -94,6 +94,9 @@ class Store:
                 self.db.execute("UPDATE alert SET active = 0 WHERE id = ?", (alert_id,))
         return new
 
+    def all_alerts(self, crew_id: str) -> list[dict]:
+        return [dict(r) for r in self.q("SELECT * FROM alert WHERE crew_id = ? ORDER BY id", crew_id)]
+
     def open_alerts(self, crew_id: str) -> list[dict]:
         """Alerts still matching, or no longer matching but not yet acknowledged."""
         return [dict(r) for r in self.q("SELECT * FROM alert WHERE crew_id = ? AND (active = 1 OR acknowledged_at"

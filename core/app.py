@@ -277,6 +277,39 @@ def reset_crew(crew_id: str):
     return {"cleared": crew_id}
 
 
+@app.get("/crew/{crew_id}/timeline")
+def timeline(crew_id: str):
+    """Per mission day, each body system's worst band (computed here, like every band), and every alert episode
+    with its first and last day: what the console's timeline lanes draw. Day 1 is the crew member's first reading."""
+    first, last = store.span(crew_id)
+    if first is None:
+        raise HTTPException(404, f"no readings for {crew_id}")
+    cfg, signals = load_thresholds(), load_signals()
+    labs = {s["name"] for s in signals if s.get("interval_days", 1) > 1}
+    base = baselines(crew_id, cfg)
+    t0 = datetime.fromisoformat(first)
+    day_of = lambda ts: (datetime.fromisoformat(ts) - t0).days + 1  # noqa: E731
+    days = []
+    for d in range(day_of(last)):
+        snap = store.latest(crew_id, (t0 + timedelta(days=d + 1, seconds=-1)).isoformat())
+        if not snap:
+            continue
+        # only the baselines that existed on that day: relative rules stay unknown during the baseline period
+        known = {k: v for k, v in base.items() if d >= cfg["lab_baseline_days" if k in labs else "baseline_days"]}
+        now = max(datetime.fromisoformat(r["ts"]) for r in snap.values())
+        days.append({"day": d + 1, "systems": domain.system_bands(domain.signal_bands(snap, known, cfg, signals, now))})
+    system_of = {s["name"]: s["system"] for s in signals} | {"cumulative_dose_msv": "radiation"}
+    names = {p["id"]: p["name"] for p in cfg["patterns"]}
+    episodes = [{"alert_id": r["id"], "pattern_id": r["pattern_id"], "signal": r["signal"], "level": r["level"],
+                 "name": names.get(r["pattern_id"], r["signal"]), "start_day": day_of(r["ts"]),
+                 "end_day": day_of(r["last_ts"]), "active": bool(r["active"]),
+                 "acknowledged": r["acknowledged_at"] is not None,
+                 "systems": sorted({system_of.get(k, "") for k in json.loads(r["signals_fired"])} - {""})}
+                for r in store.all_alerts(crew_id)]
+    return {"crew_id": crew_id, "first_ts": first, "baseline_days": cfg["baseline_days"],
+            "lab_baseline_days": cfg["lab_baseline_days"], "days": days, "episodes": episodes}
+
+
 @app.get("/crew/{crew_id}/signal/{signal}")
 def trend(crew_id: str, signal: str, days: int = 30):
     """FR-11: readings of one signal over the last `days` days, with the baseline band and thresholds."""

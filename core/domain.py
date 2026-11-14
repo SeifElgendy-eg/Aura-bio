@@ -159,6 +159,14 @@ def score_checkin(reaction_times_ms: list[float] | None, mood_answers: list[floa
     return out
 
 
+def system_bands(signals: dict[str, dict]) -> dict[str, str]:
+    """Each body system shows the worst band of its signals."""
+    systems: dict[str, str] = {}
+    for e in signals.values():
+        systems[e["system"]] = max(systems.get(e["system"], "unknown"), e["band"], key=ORDER.index)
+    return systems
+
+
 def history_days(cfg: dict) -> int:
     """How many earlier daily snapshots the patterns need."""
     return max((p.get("days", 1) for p in cfg.get("patterns", [])), default=1) - 1
@@ -175,9 +183,7 @@ def status(crew_id: str, latest: dict[str, dict], baselines: dict[str, tuple[flo
     if mission and dose_total_mgy is not None:
         out["cumulative_dose_msv"] = cumulative_dose(dose_total_mgy, mission["preset"], mission["limits"], cfg)
     past = [signal_bands(h, baselines, cfg, signals, now - timedelta(days=k + 1)) for k, h in enumerate(history)]
-    systems = {}
-    for e in out.values():
-        systems[e["system"]] = max(systems.get(e["system"], "unknown"), e["band"], key=ORDER.index)
+    systems = system_bands(out)
     alerts = match_patterns(out, cfg.get("patterns", []), past) + signal_alerts(out, cfg)
     return {"crew_id": crew_id, "ts": now.isoformat(), "baseline_ready": bool(baselines),
             "mission": mission and {"name": mission["name"], **mission["preset"]},

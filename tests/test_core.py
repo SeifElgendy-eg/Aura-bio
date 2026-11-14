@@ -370,3 +370,19 @@ def test_server_can_serve_websockets():
     # TestClient fakes /ws, but uvicorn answers it with 404 unless a WebSocket library is installed
     import importlib.util
     assert importlib.util.find_spec("websockets") or importlib.util.find_spec("wsproto")
+
+
+def test_timeline_days_and_episodes(client):  # the console's lanes: bands per day, alert episodes by day
+    for d in range(14):
+        post_day(client, d, cabin_co2_mmhg=2.0, resting_hr_bpm=60 + d % 2)
+    post_day(client, 14, cabin_co2_mmhg=3.5, resting_hr_bpm=72)
+    post_day(client, 15, cabin_co2_mmhg=2.0, resting_hr_bpm=60)
+    t = client.get("/crew/cm1/timeline").json()
+    assert [d["day"] for d in t["days"]] == list(range(1, 17))
+    assert t["days"][0]["systems"]["environment"] == "green"
+    assert t["days"][5]["systems"]["cardiovascular"] == "unknown"  # relative rule had no baseline yet: no band
+    assert t["days"][14]["systems"] == t["days"][14]["systems"] | {"environment": "red", "cardiovascular": "amber"}
+    [e] = t["episodes"]
+    assert (e["signal"], e["start_day"], e["end_day"], e["active"]) == ("cabin_co2_mmhg", 15, 15, False)
+    assert e["systems"] == ["environment"]
+    assert client.get("/crew/nobody/timeline").status_code == 404
