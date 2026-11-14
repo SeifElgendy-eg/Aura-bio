@@ -131,6 +131,28 @@
           <button type="submit" class="pri" id="ci-send">Send check-in</button>
         </form>
       </div>
+      <section class="games-checkin" aria-labelledby="ci-games-title">
+        <div class="card-head">
+          <div class="view-head">
+            <h2 id="ci-games-title">Lunar Arcade Hub</h2>
+            <p class="sub" id="ci-game-context">Optional games for the selected crew member.</p>
+          </div>
+          <a class="button" id="ci-games-open" href="/lunar-arcade-hub/" target="_blank" rel="noopener">Open games in a new tab</a>
+        </div>
+        <p class="sub">Opening the hub saves completed game results for this crew member. Scores, accuracy and timings are raw game performance, not validated health measurements; they do not change health alerts or replace the 90-second test.</p>
+        <p class="fine">First launch needs internet for the Pygbag runtime. If a result is not sent, the game tab offers a retry.</p>
+        <div class="card-head game-history-head">
+          <h3>Recent saved sessions</h3>
+          <button type="button" id="ci-games-refresh">Refresh sessions</button>
+        </div>
+        <p class="result" id="ci-game-status" role="status">No sessions loaded yet.</p>
+        <div class="card table-wrap" id="ci-game-table" hidden>
+          <table class="signals">
+            <thead><tr><th scope="col">Game / difficulty</th><th scope="col">Mission timestamp</th><th scope="col">Score</th><th scope="col">Accuracy</th><th scope="col">Mean response</th><th scope="col">Hits / mistakes</th></tr></thead>
+            <tbody id="ci-game-rows"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
     <!-- Crew overview (FR-17) -->

@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS alert (
 CREATE TABLE IF NOT EXISTS report (
   id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, alert_id INTEGER, body TEXT NOT NULL,
   created_at REAL NOT NULL, release_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS game_session (
+  session_id TEXT PRIMARY KEY, crew_id TEXT NOT NULL, game_id TEXT NOT NULL, ts TEXT NOT NULL,
+  received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, body TEXT NOT NULL);
 """
 
 
@@ -62,10 +65,29 @@ class Store:
     def crews(self) -> list[str]:
         return [r[0] for r in self.q("SELECT id FROM crew_member ORDER BY 1")]
 
-    def clear(self, crew_id: str) -> None:
+    def clear(self, crew_id: str, include_games: bool = True) -> None:
         for table in ("reading", "alert", "report", "baseline"):
             self.q(f"DELETE FROM {table} WHERE crew_id = ?", crew_id)
+        if include_games:
+            self.q("DELETE FROM game_session WHERE crew_id = ?", crew_id)
         self.q("DELETE FROM crew_member WHERE id = ?", crew_id)
+
+    def add_game_session(self, body: dict, ts: str) -> bool:
+        """A UUID is immutable: retry identical data, but never overwrite another session/crew."""
+        text = json.dumps(body, sort_keys=True, allow_nan=False)
+        with self.lock:
+            old = self.db.execute("SELECT body FROM game_session WHERE session_id = ?", (body["session_id"],)).fetchone()
+            if old:
+                if old[0] != text:
+                    raise ValueError("session_id already belongs to different game data")
+                return False
+            self.db.execute("INSERT INTO game_session (session_id, crew_id, game_id, ts, body) VALUES (?,?,?,?,?)",
+                            (body["session_id"], body["crew_id"], body["game_id"], ts, text))
+        return True
+
+    def game_sessions(self, crew_id: str, limit: int = 20) -> list[dict]:
+        return [json.loads(r["body"]) | {"ts": r["ts"], "received_at": r["received_at"], "provenance": "simulated"}
+                for r in self.q("SELECT * FROM game_session WHERE crew_id = ? ORDER BY rowid DESC LIMIT ?", crew_id, limit)]
 
     def mission(self) -> sqlite3.Row | None:
         rows = self.q("SELECT * FROM mission WHERE id = 1")
