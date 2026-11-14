@@ -364,3 +364,9 @@ def test_demo_scenario_replays_into_the_core_and_page_is_served(client):  # FR-9
     assert {a["id"] for a in s.json()["alerts"] if a["id"]} == {"co2_performance"}  # demo seed 12
     assert "AURA" in client.get("/").text and client.get("/static/app.js").status_code == 200
     assert set(client.get("/mission").json()["presets"]["mars_transit"]) >= {"alert_wording", "one_way_delay_s"}
+
+
+def test_server_can_serve_websockets():
+    # TestClient fakes /ws, but uvicorn answers it with 404 unless a WebSocket library is installed
+    import importlib.util
+    assert importlib.util.find_spec("websockets") or importlib.util.find_spec("wsproto")
