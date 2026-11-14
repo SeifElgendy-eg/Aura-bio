@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +27,7 @@ from pydantic import AwareDatetime, BaseModel, Field
 
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
 from core import domain, model_client
+from core.game_sessions import GAME_LABEL, GameSession
 from core.store import Store
 from generator.sim import SCENARIOS, make_profile, simulate, to_readings
 
@@ -177,6 +178,7 @@ app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
 # a web app served from another port may call the API; any origin is fine for a local demo with simulated data
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory=WEB), name="static")
+app.mount("/lunar-arcade-hub", StaticFiles(directory=WEB / "lunar-arcade-hub", html=True), name="games")
 replay: asyncio.Task | None = None
 
 
@@ -194,7 +196,7 @@ async def run_scenario(name: str, crew_id: str = "cm1", seed: int = 12, speed: f
         raise HTTPException(422, f"unknown scenario {name}; choose from {list(SCENARIOS)}")
     if replay:
         replay.cancel()
-    store.clear(crew_id)
+    store.clear(crew_id, include_games=False)  # scenario replay must not erase recorded game sessions
     rng, sc = np.random.default_rng(seed), SCENARIOS[name]
     msgs = to_readings(crew_id, simulate(make_profile(rng, mission()["name"]), sc.days, rng, sc))
 
@@ -358,6 +360,30 @@ async def checkin(c: CheckIn):
         ok[signal] = ingest(r.model_dump_json(), "checkin") is not None
     await broadcast(c.crew_id)
     return {"accepted": [s for s, v in ok.items() if v], "rejected": [s for s, v in ok.items() if not v]}
+
+
+@app.post("/game-sessions")
+async def save_game_session(request: Request):
+    try:
+        # Manual validation keeps NaN/inf error replies JSON-safe (no invalid input echoed into a response).
+        c = GameSession.model_validate(await request.json())
+    except ValueError:
+        raise HTTPException(422, "Invalid game session: check game ID, crew, finite results and aware timestamp") from None
+    last = store.span(c.crew_id)[1]
+    ts = c.ts or (datetime.fromisoformat(last) if last else datetime.now(timezone.utc))
+    if c.ts:
+        c.ts = c.ts.astimezone(timezone.utc)
+    body = c.model_dump(mode="json")
+    try:
+        created = store.add_game_session(body, ts.astimezone(timezone.utc).isoformat())
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
+    return {"saved": str(c.session_id), "created": created, "label": GAME_LABEL}
+
+
+@app.get("/crew/{crew_id}/game-sessions")
+def game_history(crew_id: str, limit: int = Query(20, ge=1, le=100)):
+    return {"crew_id": crew_id, "sessions": store.game_sessions(crew_id, limit), "label": GAME_LABEL}
 
 
 @app.websocket("/ws")
