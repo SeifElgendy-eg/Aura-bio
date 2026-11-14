@@ -16,7 +16,7 @@ the plan's Flutter app). Firmware (Wokwi) is on the `hardware` branch.
   stale rule. Every number is from the research doc or a recorded team choice; the header lists what is not covered yet.
 - `core/` — core service (plan 3.5): `domain.py` (all health logic, pure: bands, patterns, responses, cumulative dose,
   immune-risk score, check-in scoring, model window), `store.py` (SQLite), `model_client.py` (calls `/score`; down = `anomaly.available: false`),
-  `app.py` (MQTT ingest of `aura/+/+`; REST `/health`, `/crew`, `/crew/<id>/status`, `/crew/<id>/signal/<name>?days=` trend,
+  `app.py` (MQTT ingest of `aura/+/+`; REST `/health`, `/crew`, `/crew/<id>/status`, `/crew/<id>/signal/<name>?days=` trend, `/crew/<id>/timeline`,
   `GET/PUT /mission` preset, `POST /checkin` (raw `reaction_times_ms`, `mood_answers` or signal `values`; `ts` optional, default = the crew member's newest reading, i.e. the current simulated day), `DELETE /crew/<id>`
   demo reset, `/crew/overview` (FR-17), `POST /alerts/<id>/ack`, `/ground/reports` (FR-16: released after the preset's one-way
   delay, wall clock); WebSocket `/ws` pushes the full status). Layers as plan 3.5: app -> domain + store/model_client; the
@@ -24,8 +24,11 @@ the plan's Flutter app). Firmware (Wokwi) is on the `hardware` branch.
   window has passed: daily signals `baseline_days` 14, weekly labs `lab_baseline_days` 28), alert (per episode of a pattern,
   or of a signal red by a *published* threshold; stays until acknowledged), report; invalid messages go to `reject`.
   No migrations: after a schema change delete `core.db` (or `docker compose down -v`).
-- `web/static/` — web console, served by the core at `/`. No server of its own: the adapter at the top of `app.js` maps the
-  core's status onto the UI. Demo: `POST /scenario/<name>?speed=` replays a scenario into the core without a broker.
+- `web/static/` — web console, served by the core at `/` (no server or build step of its own). Redesigned 2026-11-14 as a
+  "flight plan timeline" (direction contract: `.impeccable/surfaces/web-static-index-html.md`; product brief: `PRODUCT.md`):
+  status sentence on top, one lane per body system over mission days from `GET /crew/<id>/timeline` (per-day system bands
+  and alert episodes, computed in the core), views for signals, check-in, crew and ground reports. `app.js` reads the
+  core's JSON directly; it computes no bands. Demo replay sits in the Mission dialog (`POST /scenario/<name>?speed=`).
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).

@@ -1,1818 +1,641 @@
-let telemetryData = null;
-let currentMission = null;
-let socket = null;
-let trendChartInstance = null;
-let activeSystemForModal = null;
-let activeSignalForModal = null;
+/* AURA-Bio console. Every number, band and alert comes from the core service (core/app.py); this file only
+   lays them out. Signal names are the contract's (contract/signals.yaml). */
+'use strict';
 
-const systemCoords = {
-  neuro: { x: 0.50, y: 0.065 },
-  mucosal_immune: { x: 0.50, y: 0.170 },
-  cardio: { x: 0.50, y: 0.275 },
-  metabolic: { x: 0.50, y: 0.400 },
-  musculoskeletal: { x: 0.43, y: 0.630 },
-  environment: { x: 0.18, y: 0.180 },
-};
-
-const systemCircleLabels = {
-  neuro: 'NEURO',
-  cardio: 'CARDIO',
-  mucosal_immune: 'IMMUNE',
-  metabolic: 'METAB',
-  musculoskeletal: 'SKEL',
-  environment: 'ECLSS',
-};
-
-let currentFocusedOrganId = null;
-let currentTopAlert = null;
-let activeBiomarkerFilter = 'ALL';
-
-// --- Core service adapter: the core (core/app.py) owns readings, baselines, bands and alerts; this maps its
-// /crew/<id>/status onto the shape the UI below draws. Signal names are the contract's (contract/signals.yaml).
-const CREW = 'cm1';
-const SYSTEMS = [
-  { id: 'neuro', name: 'Neurocognitive', icon: '🧠', description: 'Sleep, vigilance (reaction test) and mood',
-    biomarkers: ['sleep_duration_h', 'sleep_efficiency_pct', 'reaction_lapses_pct', 'mood_score'] },
-  { id: 'mucosal_immune', name: 'Immune', icon: '🛡️', description: 'Weekly labs: lymphocytes, NK activity, IL-6, viral PCR',
-    biomarkers: ['lymphocytes_per_ul', 'nk_activity_pct', 'il6_pg_ml', 'viral_pcr_positive'] },
-  { id: 'cardio', name: 'Cardiovascular', icon: '❤️', description: 'Resting heart rate, HRV and blood pressure',
-    biomarkers: ['resting_hr_bpm', 'rmssd_ms', 'bp_systolic_mmhg'] },
-  { id: 'metabolic', name: 'Metabolic & Nutrition', icon: '💧', description: 'No metabolic signal is measured yet',
-    biomarkers: [] },
-  { id: 'musculoskeletal', name: 'Musculoskeletal', icon: '🦴', description: 'Exercise countermeasure completion',
-    biomarkers: ['exercise_completion_pct'] },
-  { id: 'environment', name: 'Habitat & Radiation', icon: '🪐', description: 'Cabin CO₂, daily and cumulative radiation dose',
-    biomarkers: ['cabin_co2_mmhg', 'dose_mgy', 'cumulative_dose_msv'] },
+// ---------- vocabulary ----------
+const LANES = [
+  { id: 'neuro', name: 'Neurocognitive', sub: 'Sleep, reaction, mood', systems: ['neurocognitive'] },
+  { id: 'cardio', name: 'Cardiovascular', sub: 'HR, HRV, BP', systems: ['cardiovascular'] },
+  { id: 'immune', name: 'Immune', sub: 'Weekly labs', systems: ['immune'] },
+  { id: 'bone', name: 'Bone & muscle', sub: 'Exercise', systems: ['bone_muscle'] },
+  { id: 'habitat', name: 'Habitat & radiation', sub: 'CO₂, dose', systems: ['environment', 'radiation'] },
+  { id: 'metab', name: 'Metabolic', sub: 'No signal yet', systems: [] },
 ];
-const ALL_BIOMARKER_ORDER = SYSTEMS.flatMap(x => x.biomarkers);
-const SIGNAL_NAMES = {
-  sleep_duration_h: 'Sleep Duration', sleep_efficiency_pct: 'Sleep Efficiency', reaction_lapses_pct: 'Reaction-Test Lapses',
-  mood_score: 'Mood', lymphocytes_per_ul: 'Lymphocytes', nk_activity_pct: 'NK Cell Activity', il6_pg_ml: 'IL-6',
-  viral_pcr_positive: 'Viral PCR (EBV/CMV/VZV)', resting_hr_bpm: 'Resting Heart Rate', rmssd_ms: 'HRV (RMSSD)',
-  bp_systolic_mmhg: 'Systolic Blood Pressure', exercise_completion_pct: 'Exercise Completion',
-  cabin_co2_mmhg: 'Cabin CO₂', dose_mgy: 'Daily Radiation Dose', cumulative_dose_msv: 'Cumulative Effective Dose',
+const NAMES = {
+  sleep_duration_h: 'Sleep duration', sleep_efficiency_pct: 'Sleep efficiency', reaction_lapses_pct: 'Reaction-test lapses',
+  mood_score: 'Mood', lymphocytes_per_ul: 'Lymphocytes', nk_activity_pct: 'NK cell activity', il6_pg_ml: 'IL-6',
+  viral_pcr_positive: 'Viral PCR (EBV, CMV, VZV)', resting_hr_bpm: 'Resting heart rate', rmssd_ms: 'HRV (RMSSD)',
+  bp_systolic_mmhg: 'Systolic blood pressure', exercise_completion_pct: 'Exercise completion',
+  cabin_co2_mmhg: 'Cabin CO₂', dose_mgy: 'Daily radiation dose', cumulative_dose_msv: 'Dose to date',
 };
-const UNITS = { bpm: 'bpm', ms: 'ms', mmhg: 'mmHg', h: 'h', pct: '%', ul: '/µL', ml: 'pg/mL', mgy: 'mGy', msv: 'mSv',
-  score: '/10', positive: '' };
-const PRESET_NAMES = { station: 'ISS Low Earth Orbit', moon: 'Lunar Surface', mars_transit: 'Mars Transit',
-  mars_surface: 'Mars Surface' };
-let presetCatalog = {};
-const signalHistory = {};  // signal -> [{time, value}], seeded from the trend endpoint, extended by live pushes
+const UNITS = { bpm: ' bpm', ms: ' ms', mmhg: ' mmHg', h: ' h', pct: '%', ul: ' /µL', ml: ' pg/mL', mgy: ' mGy', msv: ' mSv', score: '/10' };
+const PRESET_NAMES = { station: 'ISS station', moon: 'Moon', mars_transit: 'Mars transit', mars_surface: 'Mars surface' };
+const RANK = { unknown: 0, green: 1, stale: 2, amber: 3, red: 4 };
+const WORD = { red: 'Red', amber: 'Amber', green: 'Within limits', stale: 'Data overdue', unknown: 'Not measured' };
+const PVT_MS = 90000, LAPSE_MS = 355;  // plan 4.6; lapse cut-off = core's checkin.lapse_ms (Basner et al. 2011)
 
-const round2 = v => (v == null || Number.isNaN(v) ? null : Math.round(v * 100) / 100);
-const systemOfSignal = sig => (SYSTEMS.find(x => x.biomarkers.includes(sig)) || {}).id;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nameOf = (sig) => NAMES[sig] || sig;
+const unitOf = (sig) => (sig === 'viral_pcr_positive' ? '' : UNITS[sig.split('_').pop()] ?? '');
+const round = (v) => (v == null ? null : Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10);
+const fmt = (sig, v) => (v == null ? '—' : sig === 'viral_pcr_positive' ? (v ? 'Positive' : 'Negative') : `${round(v)}${unitOf(sig)}`);
+const lower = (s) => (/^[A-Z][A-Z₂0-9]/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
+// a single-signal alert is named "<signal> red" by the core: show the signal's own name
+const alertName = (n) => (n && n.endsWith(' red') && NAMES[n.slice(0, -4)] ? `${NAMES[n.slice(0, -4)]} red` : n);
+const worst = (bands) => bands.reduce((w, b) => (RANK[b] > RANK[w] ? b : w), 'unknown');
+const getJson = (url) => fetch(url).then((r) => (r.ok ? r.json() : null));
 
-function boundsOf(sig, e) {
-  const base = e.baseline_mean, sd = e.baseline_sd;
-  const b = { baseline: round2(base), baseline_min: round2(base - sd), baseline_max: round2(base + sd),
-    amber_low: null, amber_high: null, red_low: null, red_high: null,
-    unit: UNITS[sig.split('_').pop()] ?? '', expected_interval_s: 86400 };
-  for (const rule of [].concat(e.rule || [])) {
-    const up = rule.direction === 'above';
-    const at = t => (t == null ? null : rule.kind === 'abs' ? t : base == null ? null
-      : rule.kind === 'delta' ? base + (up ? t : -t) : base * (1 + (up ? t : -t) / 100));
-    for (const lvl of ['amber', 'red']) {
-      const v = round2(at(rule[lvl]));
-      if (v == null) continue;
-      const key = `${lvl}_${up ? 'high' : 'low'}`;
-      // several rules on one side: keep the one that triggers first
-      b[key] = b[key] == null ? v : (up ? Math.min(b[key], v) : Math.max(b[key], v));
-    }
-  }
-  return b;
-}
-
-function presetView(id, p) {
-  const d = p.one_way_delay_s;
-  return { id, name: PRESET_NAMES[id] || id, alert_wording: p.alert_wording,
-    delay: d < 1 ? 'Real time' : d < 60 ? `${d} s` : `~${Math.round(d / 60)} min`,
-    dose_rate: `${p.dose_mgy_day} mGy/day` };
-}
-
-function alertView(a) {
-  const fired = a.fired || {};
-  return {
-    id: String(a.alert_id), crew_id: CREW, level: a.level, ts: a.started_ts,
-    is_pattern: Boolean(a.id), active: a.active, acknowledged: Boolean(a.acknowledged_at),
-    pattern_name: a.id ? a.name : `${SIGNAL_NAMES[a.signal] || a.signal} red`,
-    signals_fired: Object.keys(fired),
-    involved_systems: [...new Set(Object.keys(fired).map(systemOfSignal).filter(Boolean))],
-    medical_reason: Object.entries(fired).map(([k, f]) => `${SIGNAL_NAMES[k] || k}: ${round2(f.value)} (${f.band})`)
-      .join(' · ') + ((a.not_measured || []).length ? ` · not measured: ${a.not_measured.join(', ')}` : ''),
-    citation: a.citation || [].concat(a.rule || []).map(r => r.citation).join('; '),
-    is_published: a.basis ? a.basis === 'published' : true,
-    response_crew: [a.response_crew || (a.response || {}).crew].filter(Boolean),
-    response_medical: [a.response_system || (a.response || {}).system, a.action].filter(Boolean),
-  };
-}
-
-function toTelemetry(status, overview) {
-  const signals = (status && status.signals) || {};
-  const biomarkers = {};
-  for (const sig of ALL_BIOMARKER_ORDER) {
-    const e = signals[sig] || {};
-    const reading = e.value == null ? null : { crew_id: CREW, signal: sig, value: e.value, ts: e.ts,
-      status: e.band, provenance: e.provenance, source: 'core' };
-    const h = (signalHistory[sig] = signalHistory[sig] || []);
-    if (reading && reading.ts && (!h.length || h[h.length - 1].ts !== reading.ts)) {
-      h.push({ ts: reading.ts, time: reading.ts.slice(5, 10), value: reading.value });
-      if (h.length > 60) h.shift();
-    }
-    biomarkers[sig] = { id: sig, name: SIGNAL_NAMES[sig] || sig, system_id: systemOfSignal(sig), reading,
-      bounds: boundsOf(sig, e), history: h, response: e.response };
-  }
-  const m = status && status.mission;
-  return {
-    biomarkers, systems: SYSTEMS,
-    // active first; resolved ones stay until acknowledged
-    alerts: ((status && status.alerts) || []).map(alertView).sort((x, y) => y.active - x.active),
-    mission: m ? presetView(m.name, m) : currentMission,
-    presets: Object.fromEntries(Object.entries(presetCatalog).map(([id, p]) => [id, presetView(id, p)])),
-    crew: (overview || []).map(c => ({ id: c.crew_id, name: c.crew_id.toUpperCase(), role: 'Crew member',
-      status: c.worst, anomaly: c.anomaly_score || 0, alerts: c.alerts.length })),
-    anomaly: status && status.anomaly, immune_risk: status && status.immune_risk,
-    disclaimer: status && status.disclaimer,
-  };
-}
-
-async function loadTelemetry(status) {
-  const getJson = url => fetch(url).then(r => (r.ok ? r.json() : null));
-  const [st, overview] = await Promise.all([status ? status : getJson(`/crew/${CREW}/status`), getJson('/crew/overview')]);
-  telemetryData = toTelemetry(st, overview);
-  if (telemetryData.mission) currentMission = telemetryData.mission;
-}
-
-async function seedHistory() {
-  await Promise.all(ALL_BIOMARKER_ORDER.filter(s => s !== 'cumulative_dose_msv').map(async sig => {
-    const r = await fetch(`/crew/${CREW}/signal/${sig}?days=400`);  // whole run: day numbers count from the first reading
-    if (r.ok) signalHistory[sig] = (await r.json()).points.map(p => ({ ts: p.ts, time: p.ts.slice(5, 10), value: p.value }));
-  }));
-}
-
-// --- Native Audio Telemetry Cues (Web Audio API - Ponytail standard zero-dependency) ---
-let audioEnabled = true;
-let audioCtx = null;
-let lastAlertSoundTimestamp = 0;
-let lastHighestAlertLevel = 'green';
-
-function getAudioContext() {
-  if (!audioCtx) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
-    }
-  }
-  if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
-  return audioCtx;
-}
-
-function playCautionCue() {
-  if (!audioEnabled) return;
-  try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.frequency.setValueAtTime(520, now);
-    gain1.gain.setValueAtTime(0.08, now);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(now);
-    osc1.stop(now + 0.14);
-
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.frequency.setValueAtTime(659.25, now + 0.15);
-    gain2.gain.setValueAtTime(0.08, now + 0.15);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(now + 0.15);
-    osc2.stop(now + 0.35);
-  } catch (e) {}
-}
-
-function playWarningCue() {
-  if (!audioEnabled) return;
-  try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    [0, 0.13, 0.26].forEach((offset, idx) => {
-      const freq = (idx === 1) ? 659.25 : 880;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + offset);
-      gain.gain.setValueAtTime(0.10, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.11);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + offset);
-      osc.stop(now + offset + 0.11);
-    });
-  } catch (e) {}
-}
-
-function playAckCue() {
-  if (!audioEnabled) return;
-  try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.setValueAtTime(1100, now);
-    osc.frequency.exponentialRampToValueAtTime(450, now + 0.05);
-    gain.gain.setValueAtTime(0.05, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.05);
-  } catch (e) {}
-}
-
-function toggleAudio() {
-  audioEnabled = !audioEnabled;
-  const lbl = document.getElementById('audio-toggle-label');
-  if (lbl) {
-    lbl.textContent = audioEnabled ? '🔊 Audio Active' : '🔇 Audio Muted';
-  }
-  if (audioEnabled) {
-    playAckCue();
-  }
-}
-
-function checkAudioAlerts(alerts) {
-  if (!audioEnabled || !alerts) return;
-  const now = Date.now();
-  let currentLevel = 'green';
-  if (alerts.some(a => a.level === 'red')) {
-    currentLevel = 'red';
-  } else if (alerts.some(a => a.level === 'amber')) {
-    currentLevel = 'amber';
-  }
-
-  const isEscalation = (currentLevel === 'red' && lastHighestAlertLevel !== 'red') ||
-                       (currentLevel === 'amber' && lastHighestAlertLevel === 'green');
-  const isRecurringNotice = (currentLevel !== 'green' && (now - lastAlertSoundTimestamp) > 9000);
-
-  if (isEscalation || isRecurringNotice) {
-    lastAlertSoundTimestamp = now;
-    if (currentLevel === 'red') {
-      playWarningCue();
-    } else if (currentLevel === 'amber') {
-      playCautionCue();
-    }
-  }
-  lastHighestAlertLevel = currentLevel;
-}
-
-const organZoomConfig = {
-  neuro: {
-    origin: '50% 6.5%',
-    scale: 2.5,
-    shiftX: -14,
-    img: '/static/images/organs/neuro_web.png',
-    title: 'CEREBRAL CORTEX & CRANIAL AXIS',
-    subtitle: 'Cerebral Cortex & Brainstem • Transparent Vector Visual',
-    desc: 'Cerebral autoregulation, intracranial pressure balance, and psychomotor vigilance latency (PVT). Microgravity cephalad fluid shifts alter cranial venous return and vestibular equilibrium.',
-  },
-  mucosal_immune: {
-    origin: '50% 17%',
-    scale: 2.7,
-    shiftX: -14,
-    img: '/static/images/organs/mucosal_immune_web.png',
-    title: 'CERVICAL LYMPHOID & SALIVARY AXIS',
-    subtitle: 'Lymphatic Node & Reticular Architecture • Transparent Vector Visual',
-    desc: 'Salivary Secretory Immunoglobulin A (sIgA) secretion and cervical lymphatic drainage. Sentinel indicator for mucosal barrier integrity and latent viral reactivation risk during deep space transit.',
-  },
-  cardio: {
-    origin: '50% 27.5%',
-    scale: 2.6,
-    shiftX: -14,
-    img: '/static/images/organs/cardio_web.png',
-    title: 'MYOCARDIUM & CIRCULATORY AXIS',
-    subtitle: 'Myocardium & Great Vessels • Transparent Vector Visual',
-    desc: 'Autonomic vagal modulation, stroke volume, resting heart rate, and heart rate variability (rMSSD). Cephalad fluid redistribution causes acute central hypervolemia followed by baroreflex resetting.',
-  },
-  metabolic: {
-    origin: '50% 40%',
-    scale: 2.4,
-    shiftX: -14,
-    img: '/static/images/organs/metabolic_web.png',
-    title: 'HEPATIC & GASTROINTESTINAL AXIS',
-    subtitle: 'Gastrointestinal & Hepatic Tract • Transparent Vector Visual',
-    desc: 'Fluid osmolar retention, hepatic glucose metabolism, gut microbiome permeability, and total astronaut body mass homeostasis in unweighted environments.',
-  },
-  musculoskeletal: {
-    origin: '43% 63%',
-    scale: 2.2,
-    shiftX: -14,
-    img: '/static/images/organs/musculoskeletal_web.png',
-    title: 'SKELETAL DENSITY & LOCOMOTOR AXIS',
-    subtitle: 'Complete Human Skeletal Frame • Transparent Anatomical Visual',
-    desc: 'Cortical bone mineral density and osteoclast activity assessed via urinary N-telopeptide (NTX) crosslinks. Monitors effectiveness of daily high-intensity resistive exercise countermeasures.',
-  },
-  environment: {
-    origin: '18% 18%',
-    scale: 2.0,
-    shiftX: -10,
-    img: '/static/images/organs/eclss_mars_transit.png',
-    title: 'ECLSS HABITAT & RADIATION SHIELDING',
-    subtitle: 'Deep Space Transit Architecture • Transparent 3D Visual',
-    desc: 'Cabin atmospheric partial pressure of CO2 (pCO2), ECLSS amine scrubber cycles, and cumulative galactic cosmic radiation (GCR) dosimeter exposures.',
-  }
-};
-
-const eclssPresetConfig = {
-  station: {
-    img: '/static/images/organs/eclss_station.png',
-    title: 'ISS ORBITAL HABITAT & ECLSS',
-    subtitle: 'ISS Low Earth Orbit Configuration • NASA 3D Systems',
-    desc: 'Monitors ISS Node 3 / Tranquility regenerative ECLSS, Oxygen Generation System (OGS), Sabatier carbon dioxide reduction, and Earth geomagnetically shielded radiative flux.',
-  },
-  moon: {
-    img: '/static/images/organs/eclss_moon.png',
-    title: 'LUNAR GATEWAY & ARTEMIS HABITAT',
-    subtitle: 'Artemis Lunar Surface Habitat • NASA Architecture',
-    desc: 'Monitors Lunar Surface Habitat ECLSS, airlock depressurization cycles, and passive regolith cosmic ray radiation shielding in the unshielded lunar environment.',
-  },
-  mars_transit: {
-    img: '/static/images/organs/eclss_mars_transit.png',
-    title: 'DEEP SPACE MARS TRANSIT ECLSS',
-    subtitle: 'Deep Space Mars Transit Vehicle • NASA 1000-Day Architecture',
-    desc: 'Cabin atmospheric partial pressure of CO2 (pCO2), amine scrubbers, closed-loop water recovery, and cumulative interplanetary galactic cosmic radiation (GCR) exposure.',
-  },
-  mars_surface: {
-    img: '/static/images/organs/eclss_mars_surface.png',
-    title: 'MARS SURFACE PRESSURIZED HABITAT',
-    subtitle: 'Mars Surface Science & Habitat Platform • NASA Surface Systems',
-    desc: 'Martian atmospheric CO2 capture, surface ECLSS scrubbers, regolith radiation attenuation, and pressurized surface habitat life-support systems.',
-  },
-};
-
-function getEffectiveOrganConfig(sysId) {
-  const base = organZoomConfig[sysId];
-  if (!base) return null;
-  if (sysId === 'environment') {
-    const presetId = (currentMission && currentMission.id) || 'mars_transit';
-    const presetCfg = eclssPresetConfig[presetId] || eclssPresetConfig.mars_transit;
-    return {
-      ...base,
-      img: presetCfg.img,
-      title: presetCfg.title,
-      subtitle: presetCfg.subtitle,
-      desc: presetCfg.desc,
-    };
-  }
-  return base;
-}
-
-let pvtState = {
-  isRunning: false,
-  isWaiting: false,
-  isStimulusActive: false,
-  startTime: null,
-  timer: null,
-  trials: [],
-  lapses: 0,
-};
-
-// --- Theme Management (Light / Dark Mode) ---
-function initTheme() {
-  const savedTheme = localStorage.getItem('aura-theme') || 'dark';
-  applyTheme(savedTheme);
-}
-
-function toggleTheme() {
-  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-  const newTheme = (currentTheme === 'dark') ? 'light' : 'dark';
-  applyTheme(newTheme);
-}
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('aura-theme', theme);
-  
-  const label = document.getElementById('theme-toggle-label');
-  if (label) {
-    label.textContent = (theme === 'dark') ? 'Light Mode' : 'Dark Mode';
-  }
-
-  // If a modal chart is currently rendered, redraw with updated axis/grid colors
-  if (activeSignalForModal && trendChartInstance) {
-    updateModalChart(activeSignalForModal);
-  }
-}
-
-// connection state: the page must never pass frozen values off as live
+// ---------- state ----------
+let crew = null;           // crew id shown
+let status = null;         // /crew/<id>/status
+let timeline = null;       // /crew/<id>/timeline
+let mission = null;        // /mission
+let range = 'all';
 let linkUp = false;
-let lastPushAt = null;
+let lastPush = null;
+let lastDayTs = null;
+const history = {};        // signal -> trend points, loaded for the signals view
 
-function showInitError() {
-  const el = document.getElementById('status-line');
-  if (!el) return;
-  el.className = 'status-line stale';
-  el.innerHTML = `<span class="status-word">OFFLINE</span>
-    <span class="status-why">Cannot reach the core service. Retrying every 5 seconds.</span>`;
+// ---------- loading ----------
+async function loadCrew() {
+  const [st, tl] = await Promise.all([getJson(`/crew/${crew}/status`), getJson(`/crew/${crew}/timeline`)]);
+  status = st;
+  timeline = tl;
+  lastDayTs = st && st.ts;
+  for (const k in history) delete history[k];
 }
 
 async function init() {
-  initTheme();
-  const grid = document.querySelector('.workbench-grid');
-  if (grid && !grid.getAttribute('data-tablet-view')) {
-    grid.setAttribute('data-tablet-view', 'anatomy');
-  }
-  try {
-    const mission = await fetch('/mission').then(r => r.json());
-    presetCatalog = mission.presets;
-    currentMission = presetView(mission.name, mission);
-    await seedHistory();
-    await loadTelemetry();
-    updateMissionHeader();
-    renderHotspots();
-    linkUp = true;
-    lastPushAt = new Date();
-    setupWebSocket();
-    updateUI();
-  } catch (err) {
-    console.error('Failed to initialize telemetry bridge', err);
-    showInitError();
-    setTimeout(init, 5000);
-  }
+  mission = await getJson('/mission');
+  const ids = (await getJson('/crew')) || [];
+  crew = sessionStorageGet('crew') || ids[0] || 'cm1';
+  if (ids.length && !ids.includes(crew)) crew = ids[0];
+  await loadCrew();
+  linkUp = true;
+  lastPush = new Date();
+  connect();
+  route();
+  render();
 }
 
-function setupWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch { /* private mode */ } }
 
-  socket.onopen = () => {
-    if (!linkUp) { linkUp = true; renderStatusLine(); }
-  };
-
-  socket.onmessage = async (event) => {
-    const status = JSON.parse(event.data);
-    if (!status || status.crew_id !== CREW) return;
-    lastPushAt = new Date();
-    await loadTelemetry(status);
-    updateMissionHeader();
-    updateUI();
-  };
-
-  socket.onclose = () => {
-    linkUp = false;
-    renderStatusLine();
-    setTimeout(setupWebSocket, 3000);
-  };
-}
-
-function updateMissionHeader() {
-  if (!currentMission) return;
-  document.getElementById('mission-name').textContent = currentMission.name.toUpperCase();
-  document.getElementById('mission-delay').textContent = currentMission.delay;
-  document.getElementById('mission-dose').textContent = currentMission.dose_rate;
-}
-
-function renderHotspots() {
-  const container = document.getElementById('hotspots-container');
-  container.innerHTML = '';
-
-  if (!telemetryData || !telemetryData.systems) return;
-
-  telemetryData.systems.forEach((sys) => {
-    const coords = systemCoords[sys.id] || { x: sys.x, y: sys.y };
-    const label = systemCircleLabels[sys.id] || sys.name.toUpperCase();
-
-    const pin = document.createElement('button');
-    pin.className = 'system-pin status-green';
-    pin.id = `pin-${sys.id}`;
-    pin.style.left = `${coords.x * 100}%`;
-    pin.style.top = `${coords.y * 100}%`;
-    pin.setAttribute('aria-label', `${sys.name}: status loading`);
-    pin.title = `${sys.name} System`;
-    pin.innerHTML = `
-      <div class="reticle-circle-wrapper" aria-hidden="true">
-        <svg class="reticle-svg" viewBox="0 0 56 56" width="56" height="56">
-          <circle class="reticle-disc-bg" cx="28" cy="28" r="26.5" />
-          <g class="reticle-rotator-outer" transform-origin="28 28">
-            <circle class="reticle-outer-gaps" cx="28" cy="28" r="24.5" fill="none" />
-          </g>
-          <g class="reticle-rotator-inner" transform-origin="28 28">
-            <circle class="reticle-inner-dots" cx="28" cy="28" r="18.5" fill="none" />
-          </g>
-          <text class="reticle-label-text" x="28" y="28">${label}</text>
-        </svg>
-      </div>
-    `;
-    pin.onclick = (e) => {
-      e.stopPropagation();
-      triggerCircleRotation(pin);
-      focusOrgan(sys.id);
-    };
-    container.appendChild(pin);
-  });
-}
-
-function triggerCircleRotation(pinEl) {
-  if (!pinEl) return;
-  const outer = pinEl.querySelector('.reticle-rotator-outer');
-  const inner = pinEl.querySelector('.reticle-rotator-inner');
-  const wrap = pinEl.querySelector('.reticle-circle-wrapper');
-
-  [outer, inner, wrap].forEach(el => {
-    if (el) {
-      el.classList.remove('is-spinning');
-      void el.offsetWidth; // force DOM reflow
-      el.classList.add('is-spinning');
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { linkUp = true; renderLive(); };
+  ws.onmessage = async (e) => {
+    const st = JSON.parse(e.data);
+    lastPush = new Date();
+    if (!st) return;
+    if (st.crew_id !== crew) { if (view() === 'crew') renderCrew(); return; }
+    status = st;
+    if (st.ts !== lastDayTs) {  // a new simulated day: lanes and trends move
+      lastDayTs = st.ts;
+      timeline = await getJson(`/crew/${crew}/timeline`);
+      for (const k in history) delete history[k];
     }
-  });
+    render();
+  };
+  ws.onclose = () => { linkUp = false; renderLive(); setTimeout(connect, 3000); };
 }
 
-function updateUI() {
-  if (!telemetryData) return;
-  updateHotspotStatuses();
-  renderStatusLine();
-  renderAlerts();
-  renderScores();
-  updateUrgentHudBanner();
-  checkAudioAlerts(liveAlerts(telemetryData.alerts));
-  renderTelemetryList();
-  renderConnectorLines();
-  if (currentFocusedOrganId) {
-    const focusedSys = telemetryData.systems.find(s => s.id === currentFocusedOrganId);
-    if (focusedSys) {
-      renderOrganDrawerTelemetry(focusedSys);
-      renderOrganDrawerSubsystemNav(currentFocusedOrganId);
-      if (currentFocusedOrganId === 'environment') {
-        refreshOrganDrawerEnvironment();
-      }
-    }
-  }
-  if (activeSystemForModal && activeSignalForModal) {
-    updateModalChart(activeSignalForModal);
-  }
+// ---------- derived facts ----------
+function missionDay() { return timeline && timeline.days.length ? timeline.days[timeline.days.length - 1].day : null; }
+function laneBand(systems, lane) {
+  return lane.systems.length ? worst(lane.systems.map((s) => systems[s] || 'unknown')) : 'unknown';
 }
-
-function updateHotspotStatuses() {
-  if (!telemetryData || !telemetryData.systems) return;
-
-  telemetryData.systems.forEach((sys) => {
-    let worst = 'green';
-    let hasAnyReading = false;
-
-    sys.biomarkers.forEach((bId) => {
-      const bio = telemetryData.biomarkers[bId];
-      if (bio && bio.reading) {
-        hasAnyReading = true;
-        const status = bio.reading.status;
-        if (status === 'red') worst = 'red';
-        else if (status === 'amber' && worst !== 'red') worst = 'amber';
-        else if (status === 'stale' && worst === 'green') worst = 'stale';  // FR-8: never green when data is late
-      }
-    });
-
-    if (!hasAnyReading) worst = 'unknown';  // nothing measured (yet)
-
-    const pin = document.getElementById(`pin-${sys.id}`);
-    if (pin) {
-      const isFocused = (currentFocusedOrganId === sys.id);
-      const live = liveAlerts(telemetryData.alerts).some(a => a.involved_systems.includes(sys.id));
-      pin.className = `system-pin status-${worst}${live ? ' live' : ''}${isFocused ? ' is-active-focus' : ''}`;
-      // WCAG 1.4.1: the status is said in words, not only by colour
-      pin.setAttribute('aria-label', `${sys.name}: ${{ red: 'red', amber: 'amber', stale: 'data overdue',
-        unknown: 'not measured', green: 'within limits' }[worst]}`);
-    }
-  });
+function flagged() {
+  return Object.entries(status.signals)
+    .filter(([, e]) => e.value != null && RANK[e.band] >= RANK.stale)
+    .sort((a, b) => RANK[b[1].band] - RANK[a[1].band]);
 }
-
-// --- Risk scores (FR-14 anomaly model, FR-15 immune-risk score) ---
-// shortcut: copy of the contract's model-signal order, only needed if the model returns lists instead of dicts
-const MODEL_SIGNALS = ['resting_hr_bpm', 'rmssd_ms', 'bp_systolic_mmhg', 'sleep_duration_h', 'sleep_efficiency_pct',
-  'reaction_lapses_pct', 'mood_score', 'cabin_co2_mmhg', 'exercise_completion_pct', 'dose_mgy'];
-const asEntries = (x, names) => (Array.isArray(x) ? x.map((v, i) => [names[i] || `#${i + 1}`, v]) : Object.entries(x || {}));
-const nameOf = sig => SIGNAL_NAMES[sig] || sig;
-
-function scoreCard(title, value, level, gauge, lines) {
-  return `
-    <div class="score-card ${level}">
-      <div class="score-card-title">${title}</div>
-      <div class="score-value">${value}</div>
-      ${gauge}
-      ${lines.filter(Boolean).map(l => `<div class="score-note">${l}</div>`).join('')}
-    </div>`;
-}
-
-function renderScores() {
-  const el = document.getElementById('score-panel');
-  if (!el || !telemetryData) return;
-  const a = telemetryData.anomaly || {};
-  const ir = telemetryData.immune_risk || {};
-
-  let anomaly;
-  if (!a.available) {
-    anomaly = scoreCard('Anomaly (model)', '—', 'stale', '', [a.reason || 'model service unavailable']);
-  } else {
-    const raw = asEntries(a.scores, ['2-day autoencoder', 'EWMA']);
-    const peak = Math.max(0, ...raw.map(([, v]) => v));
-    // gauge 0..2, alarm line at 1: shows the rise even while the headline score is still 0
-    const gauge = `<div class="score-bar" title="highest model score ${peak.toFixed(2)}; alarm at 1">
-        <div class="score-bar-fill" style="width: ${Math.min(100, peak * 50)}%"></div>
-        <div class="score-bar-mark"></div></div>`;
-    const top = asEntries(a.contributions, MODEL_SIGNALS).sort((x, y) => y[1] - x[1]).slice(0, 3)
-      .map(([k, v]) => `${nameOf(k)} ${Math.round(v * 100)}%`).join(', ');
-    const drift = asEntries(a.drift, MODEL_SIGNALS).filter(([, v]) => v)
-      .map(([k, v]) => `${nameOf(k)} ${v > 0 ? '↑' : '↓'}`).join(', ');
-    anomaly = scoreCard('Anomaly (model)', (a.score ?? 0).toFixed(2), a.score >= 1 ? 'amber' : 'green', gauge, [
-      raw.map(([k, v]) => `${k}: ${(+v).toFixed(2)}`).join(' · '),
-      top && `Driven by: ${top}`,
-      drift && `Drifting: ${drift}`,
-      a.score >= 1 ? 'Unusual for this astronaut' : 'Within this astronaut\'s normal',
-    ]);
-  }
-
-  const inputs = Object.entries(ir.inputs || {}).filter(([, z]) => z >= 0.05)
-    .map(([k, z]) => `${nameOf(k)} ${z.toFixed(1)} SD`).join(', ');
-  const immune = ir.score == null
-    ? scoreCard('Immune risk', '—', 'stale', '', ['Waiting for lab baselines (first 28 days)'])
-    : scoreCard('Immune risk', `${Math.round(ir.score)}<span class="score-unit">/100</span>`, 'neutral',
-      `<div class="score-bar"><div class="score-bar-fill" style="width: ${ir.score}%"></div></div>`,
-      [inputs && `Off baseline: ${inputs}`,
-        (ir.not_measured || []).length && `Not measured: ${ir.not_measured.join(', ')}`,
-        'Placeholder weights']);
-
-  el.innerHTML = anomaly + immune;
-}
-
-// --- Status line (NFR-8): worst band as a word, what drives it, what to do next, how current it is ---
-const BAND_RANK = { red: 4, amber: 3, stale: 2, green: 1 };
-const BAND_WORD = { red: 'RED', amber: 'AMBER', stale: 'DATA OVERDUE', green: 'WITHIN LIMITS' };
-
-// mission day of a timestamp, counted from the crew member's first reading
+const liveAlerts = () => status.alerts.filter((a) => a.active && !a.acknowledged_at);
+const toReview = () => status.alerts.filter((a) => !a.acknowledged_at);
 function dayOf(ts) {
-  const first = Math.min(...Object.values(signalHistory).flat().map(h => Date.parse(h.ts)).filter(Boolean));
-  return Number.isFinite(first) ? Math.floor((Date.parse(ts) - first) / 864e5) + 1 : null;
+  if (!timeline || !ts) return null;
+  return Math.floor((Date.parse(ts) - Date.parse(timeline.first_ts)) / 864e5) + 1;
+}
+function baselineDay() {
+  const d = missionDay();
+  return d != null && timeline && d <= timeline.baseline_days ? d : null;
+}
+function limitsOf(sig, e) {
+  const out = [];
+  for (const r of [].concat(e.rule || [])) {
+    const base = e.baseline_mean;
+    for (const lvl of ['amber', 'red']) {
+      const t = r[lvl];
+      if (t == null) continue;
+      const up = r.direction === 'above';
+      const v = r.kind === 'abs' ? t : base == null ? null
+        : r.kind === 'delta' ? base + (up ? t : -t) : base * (1 + (up ? t : -t) / 100);
+      out.push({ lvl, text: v == null ? `${lvl} ${up ? '+' : '−'}${t}${r.kind === 'pct' ? '%' : ''} from baseline`
+        : `${lvl} ${up ? '>' : '<'} ${fmt(sig, v)}`, basis: r.basis, citation: r.citation });
+    }
+  }
+  return out;
 }
 
-function renderStatusLine() {
-  const el = document.getElementById('status-line');
-  if (!el || !telemetryData) return;
-  const read = Object.values(telemetryData.biomarkers).filter(b => b.reading);
-  if (!read.length) {
-    el.className = 'status-line unknown';
-    el.innerHTML = `<span class="status-word">NO DATA</span>
-      <span class="status-why">${CREW.toUpperCase()} has no readings yet. Start a scenario from the body map panel.</span>`;
-    return;
+// ---------- status band (NFR-8) ----------
+function headline() {
+  if (!status) return { band: 'unknown', text: `No readings yet for ${String(crew).toUpperCase()}.`, soft: 'Open the mission panel to replay a scenario.' };
+  const who = String(crew).toUpperCase();
+  const top = flagged();
+  const live = liveAlerts();
+  const eps = (timeline ? timeline.episodes : []).filter((e) => e.pattern_id);
+  const lastEp = eps.length ? eps.find((e) => e.pattern_id === eps[eps.length - 1].pattern_id) : null;  // onset of the latest pattern
+  const band = worst([...top.map(([, e]) => e.band), ...live.map((a) => a.level)]);
+  const act = mission ? `${mission.alert_wording}.` : '';
+  const bday = baselineDay();
+  if (bday && !top.length) {
+    return { band: 'unknown', word: 'Baseline',
+      text: `${who}: building your personal baseline, day ${bday} of ${timeline.baseline_days}.`,
+      soft: 'Bands that compare you with yourself start after the baseline period.' };
   }
-  const flagged = read.filter(b => BAND_RANK[b.reading.status] >= 2)
-    .sort((x, y) => BAND_RANK[y.reading.status] - BAND_RANK[x.reading.status]);
-  const live = liveAlerts(telemetryData.alerts);
-  const toReview = telemetryData.alerts.filter(a => !a.active && !a.acknowledged).length;
-  const band = [...live.map(a => a.level), ...flagged.map(b => b.reading.status)]
-    .sort((x, y) => BAND_RANK[y] - BAND_RANK[x])[0] || 'green';
+  if (!top.length && !live.length) {
+    return { band: 'green', text: `${who}: every measured signal is within your personal limits.`,
+      soft: lastEp ? `Last pattern: ${lower(lastEp.name)}, day ${lastEp.start_day}.` : '' };
+  }
+  if (live.length) {
+    const a = live[0];
+    return { band, text: `${who}: ${lower(a.name)} since day ${dayOf(a.started_ts)}${live.length > 1 ? `, plus ${live.length - 1} more alert${live.length > 2 ? 's' : ''}` : ''}.`, soft: act };
+  }
+  const [sig, e] = top[0];
+  let what;
+  if (e.band === 'stale') what = `${lower(nameOf(sig))} reading is overdue`;
+  else if (e.baseline_mean != null) {
+    what = `${lower(nameOf(sig))} ${fmt(sig, e.value)} is ${e.value < e.baseline_mean ? 'below' : 'above'} your ${fmt(sig, e.baseline_mean)} baseline`;
+  } else what = `${lower(nameOf(sig))} ${fmt(sig, e.value)} is past its ${e.band} limit`;
+  const after = lastEp ? `, after ${lower(lastEp.name)} from day ${lastEp.start_day}` : '';
+  return { band, text: `${who}: ${what}${after}.`, soft: act };
+}
 
-  const why = live.length
-    ? `${live[0].pattern_name}${live.length > 1 ? ` and ${live.length - 1} more alert${live.length > 2 ? 's' : ''}` : ''}`
-    : flagged.length
-      ? flagged.slice(0, 3).map(b => `${b.name} ${b.reading.status === 'stale' ? 'overdue'
-        : `${valueText(b.id, b.reading.value)} ${b.bounds.unit}`.trim()}`).join(' · ')
-      : 'Every measured signal is within its limits';
-  const next = live.length ? live[0].response_crew[0] : flagged.length && flagged[0].response ? flagged[0].response.crew : '';
-  const latest = read.map(b => b.reading.ts).filter(Boolean).sort().pop();
-  const link = linkUp ? '' : `Connection lost, retrying · last update ${lastPushAt ? lastPushAt.toLocaleTimeString() : 'none'}`;
-  const when = [link, `Day ${dayOf(latest)}`, toReview && `${toReview} resolved to review`].filter(Boolean).join(' · ');
+function renderStatus() {
+  const h = linkUp ? headline() : { band: 'offline', word: 'Offline',
+    text: 'Connection to the core service lost.', soft: `Showing data from ${lastPush ? lastPush.toLocaleTimeString() : 'earlier'}; retrying.` };
+  const b = $('s-band');
+  b.className = `band ${h.band}`;
+  b.textContent = h.word || WORD[h.band] || h.band;
+  $('s-head').innerHTML = `${esc(h.text)}${h.soft ? ` <span class="soft">${esc(h.soft)}</span>` : ''}`;
+  const n = status ? toReview().length : 0;
+  const rv = $('s-review');
+  rv.hidden = !n;
+  rv.textContent = `Review ${n} alert${n === 1 ? '' : 's'}`;
+}
 
-  el.className = `status-line ${linkUp ? band : 'stale'}`;  // FR-8 spirit: frozen data is never shown as current
+function renderMeta() {
+  $('m-crew').textContent = crew ? String(crew).toUpperCase() : '—';
+  if (mission) {
+    $('m-name').textContent = PRESET_NAMES[mission.name] || mission.name;
+    const d = mission.one_way_delay_s;
+    $('m-delay').textContent = d < 1 ? '0 s' : d < 60 ? `${d} s` : `${Math.round(d / 60)} min`;
+  }
+  $('m-day').textContent = missionDay() ?? '—';
+  document.querySelectorAll('.crew-id').forEach((el) => { el.textContent = String(crew).toUpperCase(); });
+}
+
+function renderLive() {
+  const el = $('live');
+  el.className = `live${linkUp ? '' : ' lost'}`;
+  el.textContent = linkUp ? `Live · updated ${lastPush ? lastPush.toLocaleTimeString() : ''}` : 'Connection lost · retrying';
   document.body.classList.toggle('link-lost', !linkUp);
-  el.innerHTML = `
-    <span class="status-word">${BAND_WORD[band]}</span>
-    <span class="status-who">${CREW.toUpperCase()}</span>
-    <span class="status-why">${why}</span>
-    ${next ? `<span class="status-next">Next: ${next}</span>` : ''}
-    <span class="status-when">${when}</span>`;
+  renderStatus();
 }
 
-// --- Modals and keyboard (WCAG 2.1.1, 2.4.3): focus moves in on open, Esc closes, focus returns ---
-let modalReturnFocus = null;
+// ---------- timeline (signature) ----------
+function domain() {
+  const last = missionDay() || 1;
+  if (range === 'baseline') return [1, Math.max(timeline ? timeline.baseline_days : 14, 2)];
+  if (range === 'last7') return [Math.max(1, last - 6), Math.max(last, 2)];
+  return [1, Math.max(last, 2)];
+}
 
-function setModal(id, open) {
-  const m = document.getElementById(id);
-  if (!m) return;
-  if (open) {
-    modalReturnFocus = document.activeElement;
-    m.style.display = 'flex';
-    const heading = m.querySelector('.modal-heading') || m.querySelector('button');
-    if (heading) {
-      heading.setAttribute('tabindex', '-1');
-      heading.focus();
+function renderTimeline() {
+  const box = $('lanes');
+  $('tl-empty').hidden = !!(timeline && timeline.days.length);
+  if (!timeline || !timeline.days.length) { box.innerHTML = ''; return; }
+  const [d0, d1] = domain();
+  const span = d1 - d0 + 1;
+  const x = (day) => ((day - d0) / span) * 100;          // left edge of a day, in %
+  const days = timeline.days.filter((d) => d.day >= d0 && d.day <= d1);
+  const now = status ? status.systems : {};
+
+  const lanesHtml = LANES.map((lane) => {
+    const cur = laneBand(now, lane);
+    if (!lane.systems.length) {
+      return `<div class="lane"><div class="lane-label"><b>${lane.name}</b><small>${lane.sub}</small></div>
+        <div class="track"><div class="not-measured">Not measured</div></div></div>`;
     }
-  } else {
-    m.style.display = 'none';
-    if (id === 'system-modal') { activeSystemForModal = null; activeSignalForModal = null; }
-    if (modalReturnFocus && modalReturnFocus.focus) modalReturnFocus.focus();
-  }
-}
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    const open = [...document.querySelectorAll('.modal-scrim')].find(m => m.style.display === 'flex');
-    if (open) setModal(open.id, false);
-    return;
-  }
-  // custom controls built from divs behave like buttons
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"], [role="checkbox"]')) {
-    e.preventDefault();
-    e.target.click();
-  }
-});
-
-// alerts that should still sound and fill the banner: active and not yet acknowledged
-const liveAlerts = alerts => (alerts || []).filter(a => a.active && !a.acknowledged);
-
-async function acknowledgeAlert(alertId) {
-  playAckCue();
-  await fetch(`/alerts/${alertId}/ack`, { method: 'POST' });  // the core pushes the new status over /ws
-}
-
-function alertStateChip(a) {
-  if (!a.active) return '<span class="alert-state-chip">RESOLVED · AWAITING ACK</span>';
-  if (a.acknowledged) return '<span class="alert-state-chip">ACKNOWLEDGED · STILL ACTIVE</span>';
-  return '';
-}
-
-function renderAlerts() {
-  const list = document.getElementById('alerts-list');
-  const badge = document.getElementById('alerts-count-badge');
-  const tabletPill = document.getElementById('tablet-alert-pill');
-  const alerts = telemetryData ? telemetryData.alerts : [];
-
-  if (tabletPill) {
-    if (liveAlerts(alerts).length > 0) {
-      tabletPill.textContent = liveAlerts(alerts).length;
-      tabletPill.style.display = 'inline-flex';
-    } else {
-      tabletPill.style.display = 'none';
+    // consecutive days in one non-green band become one run
+    const runs = [];
+    for (const d of days) {
+      const band = laneBand(d.systems, lane);
+      const last = runs[runs.length - 1];
+      if (!['amber', 'red', 'stale'].includes(band)) continue;
+      if (last && last.band === band && last.to === d.day - 1) last.to = d.day; else runs.push({ band, from: d.day, to: d.day });
     }
+    const runHtml = runs.map((r) => `<div class="run ${r.band}" style="left:${x(r.from)}%;width:${(r.to - r.from + 1) / span * 100}%"
+      title="${WORD[r.band]} · day ${r.from}${r.to > r.from ? `–${r.to}` : ''}"></div>`).join('');
+    return `<div class="lane"><div class="lane-label"><b>${lane.name}</b>
+      <small><span class="now ${cur}">${WORD[cur]}</span> · ${lane.sub}</small></div>
+      <div class="track">${runHtml}</div></div>`;
+  }).join('');
+
+  const tickEvery = span > 30 ? 5 : span > 10 ? 2 : 1;
+  const ticks = [];
+  for (let d = d0; d <= d1; d++) if (d === d0 || d % tickEvery === 0) ticks.push(`<span style="left:${x(d)}%">${d === d0 ? `D${d}` : d}</span>`);
+
+  // overlay: baseline zone, today, and the brackets where systems moved together
+  const laneIdx = (sys) => LANES.findIndex((l) => l.systems.includes(sys));
+  const H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lane-h')) || 64;
+  const bEnd = timeline.baseline_days;
+  let over = '';
+  if (d0 <= bEnd) over += `<div class="baseline-zone" style="left:0;width:${Math.min(x(bEnd + 1), 100)}%"><span>Personal baseline · days 1–${bEnd}</span></div>`;
+  const today = missionDay();
+  if (today >= d0 && today <= d1) over += `<div class="today" style="left:${x(today + 0.5)}%"><span>Day ${today} · today</span></div>`;
+  const seen = {};
+  for (const ep of timeline.episodes) {
+    if (ep.start_day < d0 || ep.start_day > d1) continue;
+    const idx = ep.systems.map(laneIdx).filter((i) => i >= 0);
+    if (!idx.length) continue;
+    const cx = x(ep.start_day + 0.5);
+    if (!ep.pattern_id) {  // a single signal red by a published limit: a marker on its lane
+      over += `<div class="marker" style="left:${cx}%;top:${(idx[0] + 0.5) * H}px" title="${esc(nameOf(ep.signal))} red · day ${ep.start_day}"></div>`;
+      continue;
+    }
+    const top = (Math.min(...idx) + 0.5) * H, bottom = (Math.max(...idx) + 0.5) * H;
+    const recur = seen[ep.pattern_id];
+    seen[ep.pattern_id] = true;
+    const dots = idx.map((i) => `<span class="dot ${ep.level}" style="top:${(i + 0.5) * H - top - 5.5}px"></span>`).join('');
+    over += `<div class="bracket${recur ? ' recur' : ''}" style="left:${cx}%;top:${top}px;height:${Math.max(bottom - top, 1)}px">${dots}</div>`;
+    const state = ep.active ? (ep.acknowledged ? 'active, acknowledged' : 'active') : ep.acknowledged ? 'resolved' : 'resolved, to review';
+    const labelTop = recur ? top - 22 : top + Math.max((bottom - top) / 2 - 24, 8);
+    const side = cx > 55 ? `right:${100 - cx + 0.6}%` : `left:${cx + 0.6}%`;
+    over += recur
+      ? `<button type="button" class="blabel recur" style="${side};top:${labelTop}px" data-alert="${ep.alert_id}">Again day ${ep.start_day}</button>`
+      : `<button type="button" class="blabel" style="${side};top:${labelTop}px" data-alert="${ep.alert_id}">
+          <b>${esc(ep.name)}</b><small>Day ${ep.start_day} · ${ep.systems.length} systems · ${state}</small></button>`;
   }
-
-  if (!alerts || alerts.length === 0) {
-    badge.textContent = 'NOMINAL';
-    badge.className = 'panel-count-badge';
-    badge.style.color = 'var(--color-status-green)';
-    list.innerHTML = `
-      <div class="pattern-card nominal">
-        <div class="pattern-card-meta">
-          <span style="color: var(--color-status-green); font-weight: 700; font-size: 14.5px;">● NO ALERTS</span>
-        </div>
-        <div class="pattern-card-title" style="font-size: 17px; margin: 4px 0;">No cross-system pattern or published red limit</div>
-        <details class="tablet-collapsible">
-          <summary class="tablet-collapsible-summary">Show Telemetry Baseline Context</summary>
-          <div class="collapsible-content">
-            Single signals can still be amber or red below; patterns need several body systems to change together.
-          </div>
-        </details>
-      </div>
-    `;
-    return;
-  }
-
-  const live = liveAlerts(alerts).length;
-  const waiting = alerts.filter(a => !a.acknowledged).length - live;
-  badge.textContent = [live && `${live} ACTIVE`, waiting && `${waiting} TO ACKNOWLEDGE`].filter(Boolean).join(' · ')
-    || `${alerts.length} ACKNOWLEDGED`;
-  badge.className = live ? 'panel-count-badge badge-urgent-pulse' : 'panel-count-badge';
-  badge.style.color = live ? '' : 'var(--color-text-dim)';
-
-  const current = alerts.filter(a => a.active);
-  const resolved = alerts.filter(a => !a.active);
-  list.innerHTML = current.map((alert) => `
-    <div class="pattern-card ${alert.level === 'red' ? 'level-red' : 'level-amber'}">
-      <div class="pattern-card-meta">
-        <span class="urgent-indicator-chip ${alert.level}">
-          ${alert.level === 'red' ? 'RED' : 'AMBER'} · ${alert.is_pattern ? 'CROSS-SYSTEM PATTERN' : 'SIGNAL ALERT'}
-        </span>
-        <span class="urgent-sys-chip">${alert.involved_systems.map(s => (systemCircleLabels[s] || s).toUpperCase()).join(' + ')}</span>
-      </div>
-      ${alertStateChip(alert)}
-      <div class="pattern-card-title">${alert.pattern_name}</div>
-      <div class="pattern-card-summary">${alert.medical_reason}</div>
-
-      <button class="btn-control primary alert-protocol-btn" onclick="openProtocolModal('${alert.id}')">
-        <span>What to do (${alert.response_crew.length + alert.response_medical.length} steps)</span>
-        <span>→</span>
-      </button>
-      ${alert.acknowledged ? '' : `<button class="btn-control alert-ack-btn" onclick="acknowledgeAlert('${alert.id}')">Acknowledge</button>`}
-    </div>
-  `).join('') + (resolved.length ? `
-    <details class="resolved-group"${current.length ? '' : ' open'}>
-      <summary>${resolved.length} resolved ${resolved.length === 1 ? 'alert' : 'alerts'} to review and acknowledge</summary>
-      ${resolved.map(a => `
-        <div class="resolved-row">
-          <div class="resolved-text">
-            <div class="resolved-title">${a.pattern_name}</div>
-            <div class="resolved-meta">Was ${a.level} · ${a.is_pattern ? 'cross-system pattern' : 'signal alert'} · from day ${dayOf(a.ts) ?? '?'}</div>
-          </div>
-          <button class="btn-link" onclick="openProtocolModal('${a.id}')">Details</button>
-          <button class="btn-control resolved-ack-btn" onclick="acknowledgeAlert('${a.id}')">Acknowledge</button>
-        </div>`).join('')}
-    </details>` : '');
+  box.innerHTML = `${lanesHtml}<div class="axis"><div></div><div class="ticks">${ticks.join('')}</div></div>
+    <div class="overlay">${over}</div>`;
 }
 
-let protocolAlertId = null;
-
-async function acknowledgeFromModal() {
-  if (protocolAlertId) await acknowledgeAlert(protocolAlertId);
-  setModal('protocol-modal', false);
-}
-
-function openProtocolModal(alertId) {
-  if (!telemetryData || !telemetryData.alerts) return;
-  const alert = telemetryData.alerts.find(a => a.id === alertId);
-  if (!alert) return;
-  protocolAlertId = alert.acknowledged ? null : alert.id;
-  const ackBtn = document.getElementById('protocol-ack-btn');
-  if (ackBtn) ackBtn.textContent = alert.acknowledged ? 'Close' : 'Acknowledge alert';
-  const wording = document.getElementById('protocol-modal-wording');
-  if (wording) wording.textContent = currentMission ? `${currentMission.name}: ${currentMission.alert_wording}` : '';
-
-  const modal = document.getElementById('protocol-modal');
-  const badge = document.getElementById('protocol-modal-badge');
-  const title = document.getElementById('protocol-modal-title');
-  const meta = document.getElementById('protocol-modal-meta');
-  const reason = document.getElementById('protocol-modal-reason');
-  const crewList = document.getElementById('protocol-crew-checklist');
-  const medList = document.getElementById('protocol-medical-list');
-  const citation = document.getElementById('protocol-modal-citation');
-
-  if (badge) {
-    badge.className = `urgent-indicator-chip ${alert.level}`;
-    badge.textContent = `${alert.level.toUpperCase()} · ${alert.is_pattern ? 'CROSS-SYSTEM PATTERN' : 'SIGNAL ALERT'}`;
-  }
-  if (title) title.textContent = alert.pattern_name;
-
-  if (meta) {
-    const sysTags = alert.involved_systems.map(s => `
-      <span class="protocol-meta-chip system">${(systemCircleLabels[s] || s).toUpperCase()} SUBSYSTEM</span>
-    `).join('');
-    const sigTags = alert.signals_fired.map(sig => {
-      const bio = telemetryData.biomarkers ? telemetryData.biomarkers[sig] : null;
-      const val = bio && bio.reading ? `${bio.reading.value.toFixed(1)} ${bio.bounds.unit}` : sig;
-      return `<span class="protocol-meta-chip signal">${bio ? bio.name : sig} (${val})</span>`;
-    }).join('');
-    meta.innerHTML = `<div class="protocol-meta-group">${sysTags}${sigTags}</div>`;
-  }
-
-  if (reason) reason.textContent = alert.medical_reason;
-
-  if (crewList) {
-    crewList.innerHTML = alert.response_crew.map((act, i) => `
-      <div class="protocol-checklist-item" role="checkbox" aria-checked="false" tabindex="0" onclick="toggleChecklistItem(this)">
-        <div class="protocol-checkbox" aria-hidden="true"></div>
-        <div class="protocol-step-body">
-          <div class="protocol-step-num">Step ${i + 1} of ${alert.response_crew.length}</div>
-          <div class="protocol-step-instruction">${act}</div>
-        </div>
-      </div>
-    `).join('');
-    updateChecklistCounter();
-  }
-
-  if (medList) {
-    medList.innerHTML = alert.response_medical.map((inst, i) => `
-      <div class="protocol-medical-item">
-        <span class="protocol-medical-num">${i + 1}.</span>
-        <span class="protocol-medical-text">${inst}</span>
-      </div>
-    `).join('');
-  }
-
-  if (citation) {
-    citation.innerHTML = `
-      <strong>Source:</strong> ${alert.citation} · <em>${alert.is_published ? 'published threshold' : 'proposed threshold (team research doc)'}</em>
-    `;
-  }
-
-  setModal('protocol-modal', true);
-}
-
-function toggleChecklistItem(el) {
-  el.classList.toggle('is-checked');
-  el.setAttribute('aria-checked', el.classList.contains('is-checked'));
-  updateChecklistCounter();
-}
-
-function updateChecklistCounter() {
-  const container = document.getElementById('protocol-crew-checklist');
-  const counter = document.getElementById('protocol-crew-counter');
-  if (!container || !counter) return;
-  const items = container.querySelectorAll('.protocol-checklist-item');
-  const checked = container.querySelectorAll('.protocol-checklist-item.is-checked');
-  counter.textContent = `${checked.length} / ${items.length} Completed`;
-  if (checked.length === items.length && items.length > 0) {
-    counter.style.color = 'var(--color-status-green)';
-    counter.textContent = `✔ All ${items.length} Actions Completed`;
-  } else {
-    counter.style.color = 'var(--color-signal-primary)';
-  }
-}
-
-// --- Urgent Situational Telemetry HUD Banner ---
-function updateUrgentHudBanner() {
-  const banner = document.getElementById('urgent-hud-banner');
-  if (!banner || !telemetryData) return;
-  const alerts = liveAlerts(telemetryData.alerts);
-
-  if (alerts.length === 0) {
-    banner.style.display = 'none';
-    currentTopAlert = null;
-    return;
-  }
-
-  // Priority: red alerts take precedence over amber
-  const topAlert = alerts.find(a => a.level === 'red') || alerts[0];
-  currentTopAlert = topAlert;
-
-  const isRed = (topAlert.level === 'red');
-  banner.className = `urgent-hud-banner ${isRed ? 'status-red' : 'status-amber'}`;
-  banner.style.display = 'flex';
-
-  const iconEl = document.getElementById('urgent-hud-icon');
-  if (iconEl) iconEl.textContent = '';
-
-  const titleEl = document.getElementById('urgent-hud-title');
-  if (titleEl) {
-    titleEl.textContent = `${isRed ? 'RED' : 'AMBER'} ${topAlert.is_pattern ? 'PATTERN' : 'SIGNAL'}: ${topAlert.pattern_name.toUpperCase()}`;
-  }
-
-  const subEl = document.getElementById('urgent-hud-sub');
-  if (subEl) {
-    const sysNames = (topAlert.involved_systems || []).map(s => (systemCircleLabels[s] || s).toUpperCase()).join(' + ');
-    subEl.textContent = `${sysNames} · ${topAlert.medical_reason}`;
-  }
-}
-
-function openUrgentProtocol() {
-  playAckCue();
-  if (currentTopAlert) {
-    openProtocolModal(currentTopAlert.id);
-  }
-}
-
-function focusUrgentSubsystem() {
-  playAckCue();
-  if (currentTopAlert && currentTopAlert.involved_systems && currentTopAlert.involved_systems.length > 0) {
-    focusOrgan(currentTopAlert.involved_systems[0]);
-  }
-}
-
-// --- Quick Subsystem Navigator inside Organ Inspection Drawer ---
-function renderOrganDrawerSubsystemNav(activeSysId) {
-  const nav = document.getElementById('organ-drawer-subsystem-nav');
-  if (!nav || !telemetryData || !telemetryData.systems) return;
-
-  const alerts = telemetryData.alerts || [];
-  const systemDisplayLabels = {
-    neuro: '🧠 Neuro',
-    mucosal_immune: '🛡️ Immune',
-    cardio: '❤️ Cardio',
-    metabolic: '⚡ Metab',
-    musculoskeletal: '🦴 Skel',
-    environment: '🚀 ECLSS',
+// ---------- what to do ----------
+function renderTodo() {
+  const list = $('todo');
+  if (!status) { list.innerHTML = ''; $('todo-cite').textContent = ''; return; }
+  const steps = [], seen = new Set(), cites = new Set();
+  const add = (text, detail) => {
+    const t = text.trim().replace(/\.$/, '');
+    if (t && !seen.has(t)) { seen.add(t); steps.push({ t, detail }); }
   };
-
-  nav.innerHTML = telemetryData.systems.map(sys => {
-    const isCurrent = (sys.id === activeSysId);
-    const label = systemDisplayLabels[sys.id] || sys.name;
-
-    let hasRed = false;
-    let hasAmber = false;
-
-    sys.biomarkers.forEach(bId => {
-      const bio = telemetryData.biomarkers[bId];
-      if (bio && bio.reading) {
-        if (bio.reading.status === 'red') hasRed = true;
-        if (bio.reading.status === 'amber') hasAmber = true;
-      }
-    });
-
-    if (alerts.some(a => a.involved_systems && a.involved_systems.includes(sys.id))) {
-      if (alerts.some(a => a.involved_systems.includes(sys.id) && a.level === 'red')) hasRed = true;
-      else hasAmber = true;
-    }
-
-    let dotHtml = '';
-    if (hasRed) {
-      dotHtml = '<span class="drawer-subsys-dot red"></span>';
-    } else if (hasAmber) {
-      dotHtml = '<span class="drawer-subsys-dot amber"></span>';
-    }
-
-    return `
-      <button class="drawer-subsys-pill ${isCurrent ? 'active' : ''}" onclick="focusOrgan('${sys.id}')">
-        ${dotHtml}<span>${label}</span>
-      </button>
-    `;
-  }).join('');
-}
-
-// --- Native SVG Micro-Telemetry Sparklines ---
-function generateSparklineSvg(history, status = 'green') {
-  if (!history || !Array.isArray(history) || history.length < 2) {
-    return `
-      <svg class="biomarker-sparkline" viewBox="0 0 70 24" aria-hidden="true">
-        <line x1="2" y1="12" x2="68" y2="12" stroke="var(--color-border-subtle)" stroke-dasharray="3 3" stroke-width="1.5" />
-      </svg>
-    `;
+  const sentences = (s) => (s || '').split(/(?<=\.)\s+/);
+  const live = liveAlerts();
+  const top = flagged();
+  if ((live.length || top.some(([, e]) => e.band !== 'stale')) && mission) {
+    const d = mission.one_way_delay_s;
+    add(mission.alert_wording, `${PRESET_NAMES[mission.name] || mission.name}: ${d < 1 ? 'real-time link to the ground' : `${d < 60 ? `${d} s` : `${Math.round(d / 60)} min`} one-way delay`}`);
   }
-
-  const vals = history.map(h => (typeof h.value === 'number' ? h.value : 0));
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const range = (max - min) === 0 ? 1 : (max - min);
-
-  const width = 70;
-  const height = 24;
-  const padX = 4;
-  const padY = 4;
-  const effW = width - (padX * 2);
-  const effH = height - (padY * 2);
-
-  const points = vals.map((v, i) => {
-    const x = padX + (i / (vals.length - 1)) * effW;
-    const y = (height - padY) - ((v - min) / range) * effH;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-
-  const lastPt = points[points.length - 1].split(',');
-  const lastX = lastPt[0];
-  const lastY = lastPt[1];
-
-  return `
-    <svg class="biomarker-sparkline" viewBox="0 0 ${width} ${height}" aria-hidden="true">
-      <polyline class="sparkline-line ${status}" points="${points.join(' ')}" />
-      <circle class="sparkline-dot ${status}" cx="${lastX}" cy="${lastY}" />
-    </svg>
-  `;
+  for (const a of live) {
+    const crewText = a.response_crew || (a.response || {}).crew;
+    const why = Object.entries(a.fired || {}).map(([k, f]) => `${nameOf(k)} ${fmt(k, f.value)}`).join(' · ');
+    sentences(crewText).forEach((s, i) => add(s, i ? '' : why));
+    (a.citation || '').split(/;\s*/).forEach((c) => c && cites.add(c));
+  }
+  for (const [sig, e] of top) {
+    if (e.band === 'stale') { add(`Check the ${lower(nameOf(sig))} sensor`, 'Its reading is overdue'); continue; }
+    const detail = `${nameOf(sig)} ${fmt(sig, e.value)}${e.baseline_mean != null ? `, baseline ${fmt(sig, e.baseline_mean)}` : ''}`;
+    sentences((e.response || {}).crew).forEach((s, i) => add(s, i ? '' : detail));
+    for (const r of [].concat(e.rule || [])) (r.citation || '').split(/;\s*/).forEach((c) => c && cites.add(c));
+  }
+  if (!steps.length) add('Nothing outside your limits; keep your normal routine', 'Take today’s check-in if you have not yet');
+  list.innerHTML = steps.slice(0, 5).map((s) => `<li><div>${esc(s.t)}${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</div></li>`).join('');
+  $('todo-cite').textContent = cites.size ? `Sources: ${[...cites].slice(0, 3).join('; ')}` : '';
 }
 
-// --- Biomarker Subsystem Quick-Filter Logic ---
-function setBiomarkerFilter(category) {
-  activeBiomarkerFilter = category;
-  document.querySelectorAll('.filter-pill').forEach(btn => {
-    btn.classList.toggle('active', btn.getAttribute('data-filter') === category);
-  });
-  playAckCue();
-  renderTelemetryList();
+// ---------- body map (FR-7) ----------
+const FIGURE = {  // stylised outline; one part per system, the habitat drawn as the room around the body
+  habitat: '<rect class="part" data-lane="habitat" x="4" y="4" width="112" height="192" rx="10"/>',
+  neuro: '<circle class="part" data-lane="neuro" cx="60" cy="30" r="13"/>',
+  immune: '<path class="part" data-lane="immune" d="M53 46h14v8H53z"/>',
+  cardio: '<path class="part" data-lane="cardio" d="M42 58h36l3 40H39z"/>',
+  metab: '<path class="part" data-lane="metab" d="M41 102h38l-2 26H43z"/>',
+  bone: '<path class="part" data-lane="bone" d="M44 132h14l-2 56h-9zM62 132h14l-3 56h-9zM38 60l-10 50h7l9-42zM82 60l10 50h-7l-9-42z"/>',
+};
+function renderBody() {
+  const sys = status ? status.systems : {};
+  $('figure').innerHTML = Object.values(FIGURE).join('');
+  const bands = {};
+  for (const lane of LANES) bands[lane.id] = laneBand(sys, lane);
+  document.querySelectorAll('#figure .part').forEach((p) => p.classList.add(bands[p.dataset.lane]));
+  $('figure').setAttribute('aria-label', `Body map: ${LANES.map((l) => `${l.name} ${WORD[bands[l.id]].toLowerCase()}`).join(', ')}`);
+  $('systems').innerHTML = LANES.map((l) => `<li><span>${l.name}</span><span class="now ${bands[l.id]}">${WORD[bands[l.id]]}</span></li>`).join('');
+  if (!status) { $('scores').innerHTML = ''; return; }
+  const a = status.anomaly || {};
+  const ir = status.immune_risk || {};
+  const dose = status.signals.cumulative_dose_msv;
+  const perModel = Array.isArray(a.scores) ? a.scores.map((v, i) => `${['2-day model', 'EWMA'][i] || `model ${i + 1}`} ${round(v)}`)
+    : Object.entries(a.scores || {}).map(([k, v]) => `${k} ${round(v)}`);
+  $('scores').innerHTML = `
+    <div><dt>Anomaly score</dt><dd>${a.available ? `<b>${round(a.score)}</b><small>alarm at 1 · ${esc(perModel.join(' · '))}</small>` : '<small>model unavailable</small>'}</dd></div>
+    <div><dt>Immune risk</dt><dd>${ir.score == null ? '<small>waiting for lab baselines</small>' : `<b>${Math.round(ir.score)}</b>/100<small>placeholder weights</small>`}</dd></div>
+    <div><dt>Dose to date</dt><dd>${dose && dose.value != null ? `<b>${round(dose.value)} mSv</b><small>${round(dose.pct_of_limit)}% of the 600 mSv career limit</small>` : '—'}</dd></div>`;
 }
 
-const valueText = (sig, v) => (sig === 'viral_pcr_positive' ? (v ? 'POS' : 'NEG') : v.toFixed(1));
-
-// simulated mission day of the newest reading, counted from the crew member's first reading
-function missionDay() {
-  const ts = Object.values(signalHistory).flat().map(h => Date.parse(h.ts)).filter(Boolean);
-  return ts.length ? Math.floor((Math.max(...ts) - Math.min(...ts)) / 864e5) + 1 : 0;
+// ---------- alerts (FR-6) ----------
+function alertHtml(a) {
+  const fired = Object.entries(a.fired || {});
+  const crewText = a.response_crew || (a.response || {}).crew || '';
+  const sysText = a.response_system || (a.response || {}).system || '';
+  const cites = a.citation || [].concat(a.rule || []).map((r) => r.citation).join('; ');
+  const basis = a.basis || ([].concat(a.rule || []).some((r) => r.basis === 'published') ? 'published' : 'proposed');
+  const state = a.active ? (a.acknowledged_at ? 'Active · acknowledged' : 'Active') : 'Resolved · to review';
+  return `<article class="alert" id="alert-${a.alert_id}">
+    <div class="alert-head"><span class="lvl ${a.level}">${a.level}</span><b>${esc(a.id ? a.name : `${nameOf(a.signal)} red`)}</b>
+      <span class="state${a.active ? ' live' : ''}">${state}</span></div>
+    <p class="sub">${a.id ? 'Cross-system pattern' : 'Single signal past a published limit'} · from day ${dayOf(a.started_ts) ?? '?'}${a.last_ts !== a.started_ts ? ` to day ${dayOf(a.last_ts)}` : ''}</p>
+    <h4>Why this alert</h4>
+    <p>${fired.map(([k, f]) => `${esc(nameOf(k))} ${esc(fmt(k, f.value))} (${f.band})`).join(' · ')}${(a.not_measured || []).length ? ` · not measured: ${esc(a.not_measured.join(', '))}` : ''}</p>
+    ${crewText ? `<h4>Suggested response · crew</h4><p>${esc(crewText)}</p>` : ''}
+    ${sysText ? `<h4>Suggested response · medical team</h4><p>${esc(sysText)}</p>` : ''}
+    ${a.action ? `<h4>This mission</h4><p>${esc(a.action)}</p>` : ''}
+    <p class="cite">Source: ${esc(cites)} · ${basis} threshold</p>
+    ${a.acknowledged_at ? '' : `<div class="acts"><button type="button" data-ack="${a.alert_id}">Acknowledge</button></div>`}
+  </article>`;
+}
+function openAlerts(focusId) {
+  const list = status ? [...status.alerts].sort((x, y) => y.active - x.active || y.alert_id - x.alert_id) : [];
+  // one card per alert kind; repeat episodes of the same pattern or signal are listed under it
+  const groups = new Map();
+  for (const a of list) {
+    const k = a.id || `signal:${a.signal}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(a);
+  }
+  $('da-list').innerHTML = list.length ? [...groups.values()].map(([first, ...rest]) => alertHtml(first) + rest.map((a) => `
+    <div class="alert again" id="alert-${a.alert_id}"><p>Also from day ${dayOf(a.started_ts) ?? '?'}${a.last_ts !== a.started_ts ? ` to day ${dayOf(a.last_ts)}` : ''}
+      · ${a.active ? 'active' : 'resolved'} · ${Object.entries(a.fired || {}).map(([k, f]) => `${esc(nameOf(k))} ${esc(fmt(k, f.value))}`).join(' · ')}</p>
+      ${a.acknowledged_at ? '' : `<button type="button" data-ack="${a.alert_id}">Acknowledge</button>`}</div>`).join('')).join('')
+    : '<p class="sub">No alerts to review.</p>';
+  $('d-alerts').showModal();
+  const el = focusId && $(`alert-${focusId}`);
+  if (el) el.scrollIntoView({ block: 'start' });
+}
+async function acknowledge(id, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Acknowledging…';
+  const r = await fetch(`/alerts/${id}/ack`, { method: 'POST' }).catch(() => null);
+  if (!r || !r.ok) { btn.disabled = false; btn.textContent = 'Not saved, try again'; return; }
+  status = await getJson(`/crew/${crew}/status`);
+  timeline = await getJson(`/crew/${crew}/timeline`);
+  render();
+  if ($('d-alerts').open) openAlerts();
 }
 
-function boundsText(b, sig, status) {
-  const lim = [b.amber_low != null && `amber < ${b.amber_low}`, b.amber_high != null && `amber > ${b.amber_high}`,
-    b.red_low != null && `red < ${b.red_low}`, b.red_high != null && `red > ${b.red_high}`].filter(Boolean).join(' · ');
-  const labs = SYSTEMS.find(x => x.id === 'mucosal_immune').biomarkers.includes(sig);
-  const base = b.baseline == null
-    ? `Building baseline: day ${missionDay()} of ${labs ? 28 : 14}`
-    : `Baseline ${b.baseline} ${b.unit}`;
-  const parts = [status === 'stale' ? 'Reading overdue' : null, base, lim || (status === 'unknown' ? 'no rule' : null)];
-  return parts.filter(Boolean).join(' · ');
+// ---------- signals (FR-10, FR-11) ----------
+async function loadHistory() {
+  if (!status) return;
+  const sigs = Object.keys(status.signals).filter((s) => s !== 'cumulative_dose_msv' && !history[s]);
+  await Promise.all(sigs.map(async (s) => { history[s] = await getJson(`/crew/${crew}/signal/${s}?days=30`); }));
 }
-
-function renderTelemetryList() {
-  const container = document.getElementById('telemetry-list');
-  const countBadge = document.getElementById('biomarker-count-badge');
-  if (!container || !telemetryData || !telemetryData.biomarkers) return;
-
-  let targetSignals = [];
-
-  if (activeBiomarkerFilter === 'ALL') {
-    targetSignals = ALL_BIOMARKER_ORDER.filter(id => telemetryData.biomarkers[id]);
-    // Sort breached ones to the top
-    targetSignals.sort((a, b) => {
-      const bioA = telemetryData.biomarkers[a];
-      const bioB = telemetryData.biomarkers[b];
-      const weight = (bio) => {
-        if (!bio || !bio.reading) return 3;
-        if (bio.reading.status === 'red') return 0;
-        if (bio.reading.status === 'amber') return 1;
-        return 2;
-      };
-      return weight(bioA) - weight(bioB);
-    });
-    if (countBadge) {
-      countBadge.textContent = `${targetSignals.length} MONITORED`;
-      countBadge.style.color = 'var(--color-signal-primary)';
+function spark(sig) {
+  const h = history[sig];
+  if (!h || h.points.length < 2) return '<span class="sub">—</span>';
+  const v = h.points.map((p) => p.value);
+  const lo = Math.min(...v, h.baseline_mean ?? Infinity), hi = Math.max(...v, h.baseline_mean ?? -Infinity);
+  const y = (val) => 26 - ((val - lo) / (hi - lo || 1)) * 24;
+  const d = v.map((val, i) => `${i ? 'L' : 'M'}${(i / (v.length - 1) * 118 + 1).toFixed(1)} ${y(val).toFixed(1)}`).join(' ');
+  const base = h.baseline_mean != null ? `<path class="base" d="M1 ${y(h.baseline_mean)}H119"/>` : '';
+  return `<svg class="spark" viewBox="0 0 120 28" aria-hidden="true">${base}<path d="${d}"/></svg>`;
+}
+async function renderSignals() {
+  if (!status) { $('sig-rows').innerHTML = ''; return; }
+  await loadHistory();
+  const rows = [];
+  for (const lane of LANES.filter((l) => l.systems.length)) {
+    const sigs = Object.entries(status.signals).filter(([, e]) => lane.systems.includes(e.system));
+    if (!sigs.length) continue;
+    rows.push(`<tr class="group"><td colspan="6">${lane.name}</td></tr>`);
+    for (const [sig, e] of sigs) {
+      const lims = limitsOf(sig, e);
+      const prov = e.provenance && e.provenance !== 'simulated' ? `<span class="tag">${esc(e.provenance)}</span>` : '';
+      const baseTxt = e.baseline_mean != null ? fmt(sig, e.baseline_mean) : sig === 'cumulative_dose_msv' ? 'derived' : 'building';
+      rows.push(`<tr>
+        <td><button type="button" class="rowbtn" data-signal="${sig}">${esc(nameOf(sig))}</button>${prov}</td>
+        <td>${esc(fmt(sig, e.value))}</td>
+        <td>${esc(baseTxt)}</td>
+        <td class="lim">${lims.length ? lims.map((l) => `${esc(l.text)}<span class="tag">${l.basis}</span>`).join('<br>') : 'no rule'}</td>
+        <td><span class="now ${e.band}">${WORD[e.band]}</span></td>
+        <td>${sig === 'cumulative_dose_msv' ? '' : spark(sig)}</td></tr>`);
     }
-  } else if (activeBiomarkerFilter === 'BREACHED') {
-    targetSignals = ALL_BIOMARKER_ORDER.filter(id => {
-      const bio = telemetryData.biomarkers[id];
-      if (!bio) return false;
-      return bio.reading && ['red', 'amber', 'stale'].includes(bio.reading.status);
-    });
-    if (countBadge) {
-      countBadge.textContent = `${targetSignals.length} OUT OF BAND`;
-      countBadge.style.color = targetSignals.length > 0 ? 'var(--color-status-amber)' : 'var(--color-status-green)';
-    }
+  }
+  $('sig-rows').innerHTML = rows.join('');
+}
+
+let chart = null;
+async function openSignal(sig) {
+  const e = status.signals[sig];
+  const h = await getJson(`/crew/${crew}/signal/${sig}?days=400`);
+  $('ds-title').textContent = nameOf(sig);
+  $('ds-sub').textContent = `Now ${fmt(sig, e.value)} · ${WORD[e.band]}${e.baseline_mean != null ? ` · your baseline ${fmt(sig, e.baseline_mean)} ± ${fmt(sig, e.baseline_sd)}` : ''}`;
+  const lims = limitsOf(sig, e);
+  $('ds-cite').textContent = lims.length ? `Limits: ${lims.map((l) => `${l.text} (${l.basis})`).join(' · ')}. Source: ${[...new Set(lims.map((l) => l.citation))].join('; ')}` : 'No limit rule for this signal.';
+  $('d-signal').showModal();
+  if (!window.Chart || !h) return;
+  const pts = h.points.map((p) => ({ x: dayOf(p.ts), y: p.value }));
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const flat = (v) => pts.map((p) => ({ x: p.x, y: v }));
+  const sets = [{ label: nameOf(sig), data: pts, borderColor: css('--ink'), borderWidth: 2, pointRadius: 0, tension: 0.2 }];
+  if (h.baseline_mean != null) {
+    sets.push({ label: 'Baseline + 1 SD', data: flat(h.baseline_mean + h.baseline_sd), borderWidth: 0, pointRadius: 0, fill: '+1', backgroundColor: 'rgba(230,225,213,0.08)' });
+    sets.push({ label: 'Baseline − 1 SD', data: flat(h.baseline_mean - h.baseline_sd), borderWidth: 0, pointRadius: 0 });
+    sets.push({ label: 'Your baseline', data: flat(h.baseline_mean), borderColor: css('--mute'), borderDash: [4, 4], borderWidth: 1, pointRadius: 0 });
+  }
+  for (const l of lims) {
+    const m = l.text.match(/[<>] (-?[\d.]+)/);
+    if (m) sets.push({ label: `${l.lvl} limit`, data: flat(parseFloat(m[1])), borderColor: l.lvl === 'red' ? css('--red') : css('--amber'), borderWidth: 1, pointRadius: 0 });
+  }
+  if (chart) chart.destroy();
+  chart = new window.Chart($('ds-chart'), {
+    type: 'line', data: { datasets: sets },
+    options: { animation: false, maintainAspectRatio: false, parsing: false,
+      scales: { x: { type: 'linear', title: { display: true, text: 'Mission day', color: css('--mute') }, ticks: { color: css('--mute') }, grid: { color: css('--rule') } },
+        y: { ticks: { color: css('--mute') }, grid: { color: css('--rule') } } },
+      plugins: { legend: { labels: { color: css('--mute'), filter: (i) => !i.text.includes('SD') } } } },
+  });
+}
+
+// ---------- check-in (FR-12) ----------
+const pvt = { running: false, go: false, t0: 0, end: 0, timer: null, trials: [] };
+const touched = { mood: false, ex: false };
+function pvtPress() {
+  const btn = $('pvt');
+  if (!pvt.running) {
+    Object.assign(pvt, { running: true, go: false, trials: [], end: Date.now() + PVT_MS });
+    $('pvt-big').textContent = 'Wait';
+    $('pvt-state').textContent = 'Press when the panel turns light';
+    btn.className = 'pvt wait';
+    pvtSchedule();
+  } else if (pvt.go) {
+    const rt = Date.now() - pvt.t0;
+    pvt.trials.push(rt);
+    pvt.go = false;
+    btn.className = 'pvt wait';
+    $('pvt-big').textContent = `${rt} ms`;
+    pvtStats();
+    if (Date.now() >= pvt.end) pvtDone(); else pvtSchedule();
   } else {
-    const sys = telemetryData.systems.find(s => s.id === activeBiomarkerFilter);
-    if (sys) {
-      targetSignals = sys.biomarkers.filter(id => telemetryData.biomarkers[id]);
-      if (countBadge) {
-        countBadge.textContent = `${targetSignals.length} IN ${(systemCircleLabels[sys.id] || sys.name).toUpperCase()}`;
-        countBadge.style.color = 'var(--color-signal-primary)';
-      }
-    } else {
-      targetSignals = ALL_BIOMARKER_ORDER.filter(id => telemetryData.biomarkers[id]);
-    }
-  }
-
-  if (targetSignals.length === 0) {
-    if (activeBiomarkerFilter === 'BREACHED') {
-      container.innerHTML = `
-        <div class="filter-nominal-card">
-          <div style="font-size: 24px; margin-bottom: 6px;">✔</div>
-          <div style="font-size: 15px; font-weight: 700;">No signal is amber, red or overdue</div>
-        </div>
-      `;
-      return;
-    }
-  }
-
-  let html = '';
-  targetSignals.forEach((sigId) => {
-    const bio = telemetryData.biomarkers[sigId];
-    if (!bio) return;
-
-    const rdg = bio.reading;
-    const b = bio.bounds;
-
-    if (!rdg) {
-      const sparkline = generateSparklineSvg([], 'stale');
-      html += `
-        <div class="biomarker-row stale" role="button" tabindex="0" style="opacity: 0.7;" onclick="openSystemForBiomarker('${sigId}')">
-          <div class="biomarker-row-main">
-            <div class="biomarker-info-title">${bio.name}</div>
-            <div class="biomarker-info-bounds" style="color: var(--color-status-stale);">No reading yet</div>
-          </div>
-          <div class="biomarker-row-sparkline" title="No history yet">
-            ${sparkline}
-          </div>
-          <div class="biomarker-value-badge stale">NO DATA</div>
-        </div>
-      `;
-    } else {
-      const status = rdg.status;
-      const isUrgent = (status === 'red' || status === 'amber');
-
-      const boundsDesc = boundsText(b, sigId, status);
-
-      const sparkline = generateSparklineSvg(bio.history, status);
-
-      html += `
-        <div class="biomarker-row status-${status}${isUrgent ? ' urgent-row' : ''}" role="button" tabindex="0" onclick="openSystemForBiomarker('${sigId}')">
-          <div class="biomarker-row-main">
-            <div class="biomarker-title-line">
-              ${isUrgent ? `<span class="urgent-pip ${status}">●</span>` : ''}
-              <span class="biomarker-info-title">${bio.name}</span>
-              <span class="prov-chip" title="FR-10 data label">${rdg.provenance}</span>
-            </div>
-            <div class="biomarker-info-bounds">${boundsDesc}</div>
-          </div>
-          <div class="biomarker-row-sparkline" title="Micro-telemetry sparkline history">
-            ${sparkline}
-          </div>
-          <div class="biomarker-value-badge ${status}">
-            ${valueText(sigId, rdg.value)} <span class="biomarker-unit">${b.unit}</span>
-          </div>
-        </div>
-      `;
-    }
-  });
-
-  container.innerHTML = html;
-}
-
-function openSystemForBiomarker(sigId) {
-  if (!telemetryData) return;
-  const sys = telemetryData.systems.find(s => s.biomarkers.includes(sigId));
-  if (sys) {
-    activeSignalForModal = sigId;
-    focusOrgan(sys.id);
+    $('pvt-state').textContent = 'Too early: wait for the light';
   }
 }
-
-function populateOrganDrawerDescription(descText) {
-  const summaryEl = document.getElementById('organ-drawer-summary');
-  const detailsEl = document.getElementById('organ-drawer-details');
-  const descEl = document.getElementById('organ-drawer-desc');
-  if (!summaryEl || !detailsEl || !descEl) return;
-
-  const text = (descText || '').trim();
-  const periodIdx = text.indexOf('. ');
-  if (periodIdx !== -1) {
-    summaryEl.textContent = text.substring(0, periodIdx + 1);
-    descEl.textContent = text.substring(periodIdx + 2);
-    detailsEl.style.display = 'block';
-    detailsEl.open = false; // Collapsed by default for clean tablet readability
-  } else {
-    summaryEl.textContent = text;
-    descEl.textContent = '';
-    detailsEl.style.display = 'none';
-  }
+function pvtSchedule() {
+  clearTimeout(pvt.timer);
+  pvt.timer = setTimeout(() => {  // 1-4 s between stimuli, as in PVT-B
+    pvt.go = true;
+    pvt.t0 = Date.now();
+    $('pvt').className = 'pvt go';
+    $('pvt-big').textContent = 'Now';
+    $('pvt-state').textContent = 'Press now';
+  }, 1000 + Math.random() * 3000);
 }
-
-function focusOrgan(sysId) {
-  if (!telemetryData || !telemetryData.systems) return;
-  const sys = telemetryData.systems.find(s => s.id === sysId);
-  const cfg = getEffectiveOrganConfig(sysId);
-  if (!sys || !cfg) return;
-
-  currentFocusedOrganId = sysId;
-
-  // 1. Highlight active pin
-  document.querySelectorAll('.system-pin').forEach(p => p.classList.remove('is-active-focus'));
-  const pin = document.getElementById(`pin-${sysId}`);
-  if (pin) {
-    pin.classList.add('is-active-focus');
-    triggerCircleRotation(pin);
-  }
-
-  // 2. Reposition / create targeting reticle on silhouette
-  const stage = document.getElementById('map-stage');
-  let reticle = document.getElementById('organ-reticle');
-  if (!reticle) {
-    reticle = document.createElement('div');
-    reticle.id = 'organ-reticle';
-    reticle.className = 'organ-target-reticle';
-    stage.appendChild(reticle);
-  }
-  const coords = systemCoords[sysId] || { x: sys.x, y: sys.y };
-  reticle.style.left = `${coords.x * 100}%`;
-  reticle.style.top = `${coords.y * 100}%`;
-  reticle.style.display = 'block';
-
-  // 3. Smooth zoom to the organ with slight X offset for side drawer
-  stage.style.transformOrigin = cfg.origin;
-  const shift = cfg.shiftX || -12;
-  stage.style.transform = `scale(${cfg.scale}) translateX(${shift}%)`;
-
-  // 4. Reveal Reset Zoom button
-  const resetBtn = document.getElementById('btn-reset-zoom');
-  if (resetBtn) resetBtn.style.display = 'flex';
-
-  // 5. Populate and reveal Organ Inspection Side Drawer
-  const drawer = document.getElementById('organ-drawer');
-  document.getElementById('organ-drawer-title').textContent = cfg.title;
-  
-  const imgEl = document.getElementById('organ-drawer-img');
-  imgEl.src = cfg.img;
-  imgEl.alt = `${sys.name} High-Resolution Web Visual`;
-  imgEl.style.animation = 'none';
-  void imgEl.offsetHeight; // retrigger CSS animation
-  imgEl.style.animation = 'imageFadeIn 0.35s ease-out';
-
-  document.getElementById('organ-drawer-caption').textContent = cfg.subtitle;
-  populateOrganDrawerDescription(cfg.desc);
-
-  renderOrganDrawerTelemetry(sys);
-  renderOrganDrawerSubsystemNav(sysId);
-
-  const chartBtn = document.getElementById('organ-drawer-chart-btn');
-  if (chartBtn) {
-    chartBtn.onclick = () => openSystemModal(sys);
-  }
-
-  drawer.style.display = 'flex';
+function pvtStats() {
+  const n = pvt.trials.length;
+  $('pvt-n').textContent = n;
+  $('pvt-mean').textContent = n ? `${Math.round(pvt.trials.reduce((a, b) => a + b, 0) / n)} ms` : '—';
+  $('pvt-lapses').textContent = pvt.trials.filter((t) => t >= LAPSE_MS).length;
+  $('pvt-left').textContent = pvt.running ? `${Math.max(0, Math.ceil((pvt.end - Date.now()) / 1000))} s` : 'done';
 }
-
-function refreshOrganDrawerEnvironment() {
-  if (currentFocusedOrganId !== 'environment') return;
-  const cfg = getEffectiveOrganConfig('environment');
-  if (!cfg) return;
-
-  const titleEl = document.getElementById('organ-drawer-title');
-  const imgEl = document.getElementById('organ-drawer-img');
-  const captionEl = document.getElementById('organ-drawer-caption');
-
-  if (titleEl) titleEl.textContent = cfg.title;
-  if (imgEl && !imgEl.src.endsWith(cfg.img)) {
-    imgEl.src = cfg.img;
-    imgEl.style.animation = 'none';
-    void imgEl.offsetHeight;
-    imgEl.style.animation = 'imageFadeIn 0.35s ease-out';
-  }
-  if (captionEl) captionEl.textContent = cfg.subtitle;
-  populateOrganDrawerDescription(cfg.desc);
+function pvtDone() {
+  clearTimeout(pvt.timer);
+  pvt.running = false;
+  $('pvt').className = 'pvt';
+  $('pvt-big').textContent = 'Done';
+  $('pvt-state').textContent = `${pvt.trials.length} trials recorded. Press to take it again.`;
+  pvtStats();
 }
-
-function renderOrganDrawerTelemetry(sys) {
-  const container = document.getElementById('organ-drawer-telemetry');
-  if (!container || !telemetryData || !telemetryData.biomarkers) return;
-
-  container.innerHTML = sys.biomarkers.map(bId => {
-    const bio = telemetryData.biomarkers[bId];
-    if (!bio) return '';
-    const rdg = bio.reading;
-    const b = bio.bounds;
-
-    const status = rdg ? rdg.status : 'stale';
-    const isUrgent = (status === 'red' || status === 'amber');
-    const valText = rdg ? `${rdg.value.toFixed(1)}` : 'OFFLINE';
-
-    let boundsDesc = `Nominal: ${b.baseline} ${b.unit}`;
-    if (b.amber_low !== null && b.amber_high !== null) {
-      boundsDesc = `Band: [${b.amber_low} – ${b.amber_high}]`;
-    } else if (b.amber_high !== null) {
-      boundsDesc = `Upper limit: ${b.amber_high} ${b.unit}`;
-    } else if (b.amber_low !== null) {
-      boundsDesc = `Lower limit: ${b.amber_low} ${b.unit}`;
-    }
-
-    return `
-      <div class="biomarker-row status-${status}${isUrgent ? ' urgent-row' : ''}" role="button" tabindex="0" style="padding: 10px 12px; cursor: pointer;" onclick="openSystemBiomarkerChart('${bId}')">
-        <div>
-          <div class="biomarker-title-line">
-            ${isUrgent ? `<span class="urgent-pip ${status}">●</span>` : ''}
-            <span class="biomarker-info-title" style="font-size: 14.5px;">${bio.name}</span>
-          </div>
-          <div class="biomarker-info-bounds" style="font-size: 12px;">${boundsDesc}</div>
-        </div>
-        <div class="biomarker-value-badge ${status}" style="font-size: 15px; padding: 4px 10px;">
-          ${valText} <span class="biomarker-unit">${b.unit}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// --- Tablet Navigation & Layout Control ---
-let currentTabletView = 'anatomy';
-
-function switchTabletView(view) {
-  currentTabletView = view;
-  const grid = document.querySelector('.workbench-grid');
-  const btnAnatomy = document.getElementById('tab-btn-anatomy');
-  const btnTelemetry = document.getElementById('tab-btn-telemetry');
-  
-  if (grid) {
-    grid.setAttribute('data-tablet-view', view);
-  }
-  if (btnAnatomy && btnTelemetry) {
-    if (view === 'anatomy') {
-      btnAnatomy.classList.add('active');
-      btnTelemetry.classList.remove('active');
-    } else {
-      btnTelemetry.classList.add('active');
-      btnAnatomy.classList.remove('active');
-    }
-  }
-}
-
-function toggleDisclaimer() {
-  const strip = document.getElementById('disclaimer-strip');
-  if (strip) {
-    strip.classList.toggle('minimized');
-  }
-}
-
-function openSystemBiomarkerChart(bId) {
-  activeSignalForModal = bId;
-  if (currentFocusedOrganId) {
-    const sys = telemetryData.systems.find(s => s.id === currentFocusedOrganId);
-    if (sys) openSystemModal(sys);
-  }
-}
-
-function resetBodyZoom() {
-  const stage = document.getElementById('map-stage');
-  if (stage) {
-    stage.style.transform = 'none';
-    stage.style.transformOrigin = '50% 50%';
-  }
-
-  const reticle = document.getElementById('organ-reticle');
-  if (reticle) reticle.style.display = 'none';
-
-  document.querySelectorAll('.system-pin').forEach(p => p.classList.remove('is-active-focus'));
-
-  const resetBtn = document.getElementById('btn-reset-zoom');
-  if (resetBtn) resetBtn.style.display = 'none';
-
-  const drawer = document.getElementById('organ-drawer');
-  if (drawer) drawer.style.display = 'none';
-
-  currentFocusedOrganId = null;
-}
-
-function closeOrganDrawer() {
-  resetBodyZoom();
-}
-
-function renderConnectorLines() {
-  const svg = document.getElementById('connector-svg');
-  if (svg) svg.innerHTML = '';
-}
-
-function openSystemModal(sys) {
-  activeSystemForModal = sys;
-  if (!activeSignalForModal || !sys.biomarkers.includes(activeSignalForModal)) {
-    activeSignalForModal = sys.biomarkers[0];
-  }
-
-  document.getElementById('modal-system-title').textContent = `${sys.name.toUpperCase()} SYSTEM`;
-  document.getElementById('modal-system-desc').textContent = sys.description;
-
-  const tabsContainer = document.getElementById('modal-biomarker-tabs');
-  tabsContainer.innerHTML = sys.biomarkers.map((bId) => {
-    const bio = telemetryData.biomarkers[bId];
-    const isSelected = (bId === activeSignalForModal);
-    return `
-      <button class="tab-btn ${isSelected ? 'active' : ''}" onclick="selectBiomarkerTab('${bId}')">
-        ${bio.name}
-      </button>
-    `;
-  }).join('');
-
-  const content = document.getElementById('modal-biomarkers-content');
-  content.innerHTML = sys.biomarkers.map((bId) => {
-    const bio = telemetryData.biomarkers[bId];
-    const rdg = bio?.reading;
-    const b = bio.bounds;
-
-    let limitsStr = `Target: ${b.baseline} [${b.baseline_min}–${b.baseline_max}]`;
-    if (b.amber_low !== null) limitsStr += ` · Lower Amber: <${b.amber_low}`;
-    if (b.amber_high !== null) limitsStr += ` · Upper Amber: >${b.amber_high}`;
-    if (b.red_low !== null) limitsStr += ` · Lower Red: <${b.red_low}`;
-    if (b.red_high !== null) limitsStr += ` · Upper Red: >${b.red_high}`;
-
-    const status = rdg?.status || 'green';
-    const valStr = rdg ? rdg.value.toFixed(1) : '--';
-
-    return `
-      <div class="biomarker-row" role="button" tabindex="0" onclick="selectBiomarkerTab('${bId}')">
-        <div>
-          <div class="biomarker-info-title">${bio.name}</div>
-          <div class="biomarker-info-bounds">${limitsStr}</div>
-        </div>
-        <div class="biomarker-value-badge ${status}">
-          ${valStr} ${b.unit}
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  updateModalChart(activeSignalForModal);
-  setModal('system-modal', true);
-}
-
-function selectBiomarkerTab(bId) {
-  activeSignalForModal = bId;
-  openSystemModal(activeSystemForModal);
-}
-
-function updateModalChart(sigId) {
-  const bio = telemetryData?.biomarkers[sigId];
-  if (!bio) return;
-
-  const b = bio.bounds;
-  const history = bio.history || [];
-  const labels = history.map(h => h.time);
-  const values = history.map(h => h.value);
-
-  document.getElementById('chart-signal-title').textContent = `${bio.name} (${b.unit})`;
-  
-  let boundsText = `Personal Baseline: ${b.baseline} ${b.unit} [${b.baseline_min} – ${b.baseline_max}]`;
-  document.getElementById('chart-bounds-legend').textContent = boundsText;
-
-  const statusBadge = document.getElementById('chart-status-badge');
-  const currentStatus = bio.reading?.status || 'green';
-  statusBadge.textContent = currentStatus.toUpperCase();
-  statusBadge.className = `biomarker-value-badge ${currentStatus}`;
-
-  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-  const gridColor = (currentTheme === 'dark') ? '#1C2638' : '#E2E8F0';
-  const tickColor = (currentTheme === 'dark') ? '#64748B' : '#475569';
-  const primaryLineColor = (currentTheme === 'dark') ? '#38BDF8' : '#0284C7';
-  const primaryFillColor = (currentTheme === 'dark') ? 'rgba(56, 189, 248, 0.08)' : 'rgba(2, 132, 199, 0.08)';
-
-  const ctx = document.getElementById('trendChart').getContext('2d');
-  if (trendChartInstance) {
-    trendChartInstance.destroy();
-  }
-
-  const datasets = [
-    {
-      label: `${bio.name}`,
-      data: values,
-      borderColor: primaryLineColor,
-      backgroundColor: primaryFillColor,
-      fill: true,
-      tension: 0.25,
-      borderWidth: 2,
-      pointRadius: 3,
-      pointBackgroundColor: primaryLineColor,
-    },
-    {
-      label: 'Baseline Target',
-      data: labels.map(() => b.baseline),
-      borderColor: (currentTheme === 'dark') ? 'rgba(148, 163, 184, 0.5)' : 'rgba(71, 85, 105, 0.5)',
-      borderDash: [4, 4],
-      borderWidth: 1.2,
-      pointRadius: 0,
-      fill: false,
-    },
-  ];
-
-  if (b.amber_high !== null) {
-    datasets.push({
-      label: 'Upper Amber Threshold',
-      data: labels.map(() => b.amber_high),
-      borderColor: '#F59E0B',
-      borderDash: [5, 4],
-      borderWidth: 1.4,
-      pointRadius: 0,
-      fill: false,
-    });
-  }
-  if (b.red_high !== null) {
-    datasets.push({
-      label: 'Upper Red Critical',
-      data: labels.map(() => b.red_high),
-      borderColor: '#EF4444',
-      borderWidth: 1.6,
-      pointRadius: 0,
-      fill: false,
-    });
-  }
-
-  if (b.amber_low !== null) {
-    datasets.push({
-      label: 'Lower Amber Threshold',
-      data: labels.map(() => b.amber_low),
-      borderColor: '#F59E0B',
-      borderDash: [5, 4],
-      borderWidth: 1.4,
-      pointRadius: 0,
-      fill: false,
-    });
-  }
-  if (b.red_low !== null) {
-    datasets.push({
-      label: 'Lower Red Critical',
-      data: labels.map(() => b.red_low),
-      borderColor: '#EF4444',
-      borderWidth: 1.6,
-      pointRadius: 0,
-      fill: false,
-    });
-  }
-
-  trendChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: labels,
-      datasets: datasets,
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          labels: {
-            color: tickColor,
-            font: { size: 13, weight: '600', family: 'Inter, sans-serif' },
-            boxWidth: 14,
-            padding: 12,
-          },
-        },
-      },
-      scales: {
-        x: {
-          grid: { color: gridColor },
-          ticks: { color: tickColor, font: { size: 13, weight: '500' } },
-        },
-        y: {
-          grid: { color: gridColor },
-          ticks: { color: tickColor, font: { size: 13, weight: '600' } },
-        },
-      },
-    },
-  });
-}
-
-// plan 4.6: 90-second reaction test; lapse = response >= 355 ms (PVT-B, Basner 2011), same as the core's checkin.lapse_ms
-const PVT_BLOCK_MS = 90000;
-const PVT_LAPSE_MS = 355;
-
-function handlePvtClick() {
-  const arena = document.getElementById('pvt-arena');
-  const prompt = document.getElementById('pvt-prompt');
-  const sub = document.getElementById('pvt-sub');
-
-  if (!pvtState.isRunning) {
-    pvtState.isRunning = true;
-    pvtState.trials = [];
-    pvtState.lapses = 0;
-    pvtState.blockEnd = Date.now() + PVT_BLOCK_MS;
-    prompt.textContent = 'Wait for the light...';
-    sub.textContent = 'Trial 1';
-    scheduleNextPvtStimulus();
-  } else if (pvtState.isWaiting && !pvtState.isStimulusActive) {
-    prompt.textContent = 'Premature response! Wait for signal';
-    clearTimeout(pvtState.timer);
-    scheduleNextPvtStimulus();
-  } else if (pvtState.isStimulusActive) {
-    const elapsed = Date.now() - pvtState.startTime;
-    pvtState.trials.push(elapsed);
-    if (elapsed >= PVT_LAPSE_MS) pvtState.lapses++;
-
-    pvtState.isStimulusActive = false;
-    arena.classList.remove('active-stimulus');
-
-    const meanRt = Math.round(pvtState.trials.reduce((a, b) => a + b, 0) / pvtState.trials.length);
-    const left = Math.max(0, Math.ceil((pvtState.blockEnd - Date.now()) / 1000));
-    document.getElementById('pvt-trials-count').textContent = `${left} s`;
-    document.getElementById('pvt-mean-rt').textContent = `${meanRt} ms`;
-    document.getElementById('pvt-lapses-count').textContent = pvtState.lapses;
-
-    if (left === 0) {
-      pvtState.isRunning = false;
-      prompt.textContent = 'Test complete. Tap to retake';
-      sub.textContent = `${pvtState.trials.length} trials · mean ${meanRt} ms · ${pvtState.lapses} lapses`;
-    } else {
-      prompt.textContent = 'Wait for the light...';
-      sub.textContent = `Trial ${pvtState.trials.length + 1}`;
-      scheduleNextPvtStimulus();
-    }
-  }
-}
-
-function scheduleNextPvtStimulus() {
-  pvtState.isWaiting = true;
-  pvtState.isStimulusActive = false;
-  const delayMs = 1000 + Math.random() * 3000;  // 1-4 s between stimuli, as in PVT-B
-
-  pvtState.timer = setTimeout(() => {
-    pvtState.isStimulusActive = true;
-    pvtState.startTime = Date.now();
-    const arena = document.getElementById('pvt-arena');
-    arena.classList.add('active-stimulus');
-    document.getElementById('pvt-prompt').textContent = 'TAP NOW';
-  }, delayMs);
-}
-
-function openCrewModal() {
-  playAckCue();
-  const container = document.getElementById('crew-list-container');
-  const crew = telemetryData?.crew || [];
-
-  container.innerHTML = crew.map((c) => {
-    return `
-      <div class="biomarker-row" style="padding: 14px; min-height: 58px;">
-        <div>
-          <div class="biomarker-info-title" style="font-size: 16.5px;">${c.name}</div>
-          <div class="biomarker-info-bounds" style="font-size: 14px; margin-top: 3px;">${c.role} · Drift index: ${(c.anomaly * 100).toFixed(0)}%</div>
-        </div>
-        <div style="text-align: right;">
-          <span class="biomarker-value-badge ${c.status}" style="font-size: 15px; padding: 4px 10px;">${c.status.toUpperCase()}</span>
-          <div style="font-size: 13px; color: var(--color-text-dim); margin-top: 3px;">${c.alerts} active ${c.alerts === 1 ? 'alert' : 'alerts'}</div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  setModal('crew-modal', true);
-}
-
-function openMissionModal() {
-  playAckCue();
-  const container = document.getElementById('presets-list-container');
-  const presets = telemetryData?.presets || {};
-
-  container.innerHTML = Object.values(presets).map((p) => {
-    const isCurrent = currentMission && currentMission.name === p.name;
-    return `
-      <div class="biomarker-row" role="button" tabindex="0" style="padding: 14px; min-height: 60px; cursor: pointer; ${isCurrent ? 'border-color: var(--color-signal-primary);' : ''}" onclick="selectMissionPreset('${p.id}')">
-        <div>
-          <div class="biomarker-info-title" style="font-size: 16.5px; color: ${isCurrent ? 'var(--color-signal-primary)' : 'var(--color-text-bright)'};">${p.name}</div>
-          <div class="biomarker-info-bounds" style="font-size: 14px; margin-top: 2px;">Latency: ${p.delay} · Radiative flux: ${p.dose_rate}</div>
-          <div style="font-size: 13.5px; color: var(--color-text-muted); margin-top: 4px;">${p.alert_wording}</div>
-        </div>
-        <button class="btn-control ${isCurrent ? 'primary' : ''}" style="min-height: 44px; font-size: 14px; font-weight: 700; padding: 8px 16px;">${isCurrent ? 'ACTIVE' : 'SELECT'}</button>
-      </div>
-    `;
-  }).join('');
-
-  setModal('mission-modal', true);
-}
-
-async function selectMissionPreset(presetId) {
-  playAckCue();
-  try {
-    const res = await fetch('/mission', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preset: presetId }) });
-    const data = await res.json();
-    if (res.ok) {
-      currentMission = presetView(data.name, data);
-      updateMissionHeader();
-      if (currentFocusedOrganId === 'environment') {
-        refreshOrganDrawerEnvironment();
-      }
-    }
-    setModal('mission-modal', false);
-  } catch (err) {
-    console.error('Failed to update mission preset', err);
-  }
-}
-
-async function triggerScenario(id) {
-  playAckCue();
-  try {
-    for (const k in signalHistory) delete signalHistory[k];  // the core wipes the crew member's readings too
-    const speed = (document.getElementById('scenario-speed') || {}).value || 10;
-    const res = await fetch(`/scenario/${id}?speed=${speed}`, { method: 'POST' });
-    if (!res.ok) throw new Error(`the core answered ${res.status}`);
-  } catch (err) {
-    console.error('Failed to trigger scenario', err);
-    const el = document.getElementById('status-line');
-    if (el) el.querySelector('.status-why').textContent = `Scenario not started (${err.message}).`;
-  }
-}
-
-// only answered fields are sent: an untouched slider must not become a reading in the personal baseline
-const checkinTouched = { mood: false, exercise: false };
-
-function openCheckinModal() {
-  playAckCue();
-  document.getElementById('checkin-result').textContent = '';
-  setModal('checkin-modal', true);
-}
-
-function closeModal(event, modalId) {
-  if (event.target.id === modalId) {
-    playAckCue();
-    setModal(modalId, false);
-    if (modalId === 'system-modal') {
-      activeSystemForModal = null;
-      activeSignalForModal = null;
-    }
-  }
-}
-
-async function submitCheckin(e) {
-  e.preventDefault();
-  const result = document.getElementById('checkin-result');
-  // the core counts lapses (>= 355 ms, PVT-B) and scores mood; no ts = the crew member's current simulated day
-  const payload = { crew_id: CREW, values: {} };
-  if (checkinTouched.mood) payload.mood_answers = [parseFloat(document.getElementById('inp-mood').value)];
-  if (checkinTouched.exercise) {
-    const minutes = parseFloat(document.getElementById('inp-exercise').value);
-    // shortcut: 60 min of exercise = 100% completion, the console's old assumption; use the real prescription when known
-    payload.values.exercise_completion_pct = Math.min(100, (minutes / 60) * 100);
-  }
-  if (pvtState.trials.length) payload.reaction_times_ms = pvtState.trials;
-  if (!payload.mood_answers && !payload.reaction_times_ms && !checkinTouched.exercise) {
-    result.className = 'checkin-result error';
-    result.textContent = 'Nothing to send yet: take the reaction test or answer at least one question.';
+async function sendCheckin(ev) {
+  ev.preventDefault();
+  const out = $('ci-result');
+  const body = { crew_id: crew, values: {} };
+  if (touched.mood) body.mood_answers = [parseFloat($('ci-mood').value)];
+  // shortcut: 60 min of exercise = 100% completion (the console's old assumption); use the real prescription when known
+  if (touched.ex) body.values.exercise_completion_pct = Math.min(100, (parseFloat($('ci-ex').value) / 60) * 100);
+  if (pvt.trials.length) body.reaction_times_ms = pvt.trials;
+  if (!body.mood_answers && !body.reaction_times_ms && !touched.ex) {
+    out.className = 'result err';
+    out.textContent = 'Nothing to send yet: take the reaction test or answer a question.';
     return;
   }
-
-  const button = document.getElementById('checkin-submit');
-  button.disabled = true;
-  button.textContent = 'Sending…';
+  const btn = $('ci-send');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
   try {
-    const res = await fetch('/checkin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(`the core answered ${res.status}`);
-    const body = await res.json();
-    const lapses = payload.reaction_times_ms
-      ? `${pvtState.trials.filter(t => t >= PVT_LAPSE_MS).length} lapses in ${pvtState.trials.length} trials` : 'no reaction test';
-    result.className = 'checkin-result ok';
-    result.textContent = `Sent: ${body.accepted.length} reading${body.accepted.length === 1 ? '' : 's'} (${lapses}).`
-      + (body.rejected.length ? ` Not accepted: ${body.rejected.join(', ')}.` : '');
-    playAckCue();
+    const r = await fetch('/checkin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(`the core answered ${r.status}`);
+    const res = await r.json();
+    out.className = 'result ok';
+    out.textContent = `Sent for day ${missionDay() ?? '?'}: ${res.accepted.map(nameOf).join(', ')}.${res.rejected.length ? ` Not accepted: ${res.rejected.join(', ')}.` : ''}`;
   } catch (err) {
-    result.className = 'checkin-result error';
-    result.textContent = `Not sent (${err.message}). Your answers are kept; try again.`;
+    out.className = 'result err';
+    out.textContent = `Not sent (${err.message}). Your answers are kept; try again.`;
   } finally {
-    button.disabled = false;
-    button.textContent = 'Send check-in';
+    btn.disabled = false;
+    btn.textContent = 'Send check-in';
   }
 }
 
-window.addEventListener('resize', renderConnectorLines);
-window.addEventListener('DOMContentLoaded', init);
+// ---------- crew (FR-17) and ground reports (FR-16) ----------
+async function renderCrew() {
+  const cards = (await getJson('/crew/overview')) || [];
+  $('crew').innerHTML = cards.length ? cards.map((c) => {
+    const open = c.alerts.filter((a) => a.active).length, review = c.alerts.length - open;
+    return `<li class="card"><div class="who"><b>${esc(c.crew_id.toUpperCase())}</b><span class="band ${c.worst}">${WORD[c.worst]}</span></div>
+      <dl><div><dt>Alerts</dt><dd>${open} active · ${review} to review</dd></div>
+      <div><dt>Anomaly score</dt><dd>${c.anomaly_score == null ? '—' : round(c.anomaly_score)}</dd></div>
+      <div><dt>Immune risk</dt><dd>${c.immune_risk == null ? '—' : `${Math.round(c.immune_risk)}/100`}</dd></div>
+      <div><dt>Last reading</dt><dd>${new Date(c.ts).toUTCString().slice(5, 22)} UTC</dd></div></dl>
+      <button type="button" data-crew="${esc(c.crew_id)}"${c.crew_id === crew ? ' disabled' : ''}>${c.crew_id === crew ? 'Showing' : 'Open'}</button></li>`;
+  }).join('') : '<li class="sub">No crew members yet.</li>';
+}
+async function renderReports() {
+  const r = await getJson('/ground/reports');
+  if (!r) return;
+  const pend = r.pending.map((p) => `<li class="card"><span class="pending">On its way · arrives in ${Math.ceil(p.release_in_s / 60)} min</span>
+    <span class="when">Report ${p.report_id} · ${esc(p.crew_id.toUpperCase())}</span></li>`);
+  const done = [...r.released].reverse().map((p) => `<li class="card"><b>${esc(p.crew_id.toUpperCase())} · ${esc(alertName(p.alert))}</b>
+    <span class="when">${esc(p.level)} · ${esc(PRESET_NAMES[p.mission] || p.mission)} · ${new Date(p.ts).toUTCString().slice(5, 22)} UTC</span></li>`);
+  $('reports').innerHTML = [...pend, ...done].join('') || '<li class="sub">No reports sent yet.</li>';
+}
+
+// ---------- mission panel (FR-13, FR-9 demo) ----------
+function openMission() {
+  const p = mission.presets;
+  $('dm-presets').innerHTML = Object.entries(p).map(([id, v]) => `<label class="preset"><input type="radio" name="preset" value="${id}"${id === mission.name ? ' checked' : ''}>
+    <span><b>${esc(PRESET_NAMES[id] || id)}</b><small>Delay ${v.one_way_delay_s < 1 ? 'real time' : v.one_way_delay_s < 60 ? `${v.one_way_delay_s} s` : `${Math.round(v.one_way_delay_s / 60)} min`} · dose ${v.dose_mgy_day} mGy/day · alerts read “${esc(v.alert_wording)}”</small></span></label>`).join('');
+  $('dm-result').textContent = '';
+  $('d-mission').showModal();
+}
+async function setPreset(id) {
+  const r = await fetch('/mission', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: id }) });
+  if (r.ok) { const m = await r.json(); mission = { ...mission, ...m }; render(); }
+}
+async function replay() {
+  const out = $('dm-result');
+  const r = await fetch(`/scenario/${$('dm-scenario').value}?crew_id=${encodeURIComponent(crew)}&speed=${$('dm-speed').value}`, { method: 'POST' }).catch(() => null);
+  if (!r || !r.ok) { out.className = 'result err'; out.textContent = 'Scenario not started; is the core running?'; return; }
+  const s = await r.json();
+  out.className = 'result ok';
+  out.textContent = `Replaying ${s.days} days at ${s.seconds_per_day} s per day.`;
+  status = null; timeline = null;
+  render();
+}
+
+// ---------- views ----------
+const VIEWS = ['health', 'signals', 'checkin', 'crew', 'reports'];
+const view = () => (VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'health');
+function route() {
+  const v = view();
+  for (const id of VIEWS) $(`v-${id}`).hidden = id !== v;
+  document.querySelectorAll('.tabs a').forEach((a) => (a.dataset.view === v ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+  if (v === 'signals') renderSignals();
+  if (v === 'crew') renderCrew();
+  if (v === 'reports') renderReports();
+}
+function render() {
+  renderMeta();
+  renderLive();
+  renderTimeline();
+  renderTodo();
+  renderBody();
+  if (view() === 'signals') renderSignals();
+}
+
+// ---------- events ----------
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button, [data-alert]');
+  if (!t) return;
+  if (t.dataset.close !== undefined) t.closest('dialog').close();
+  else if (t.dataset.alert) openAlerts(t.dataset.alert);
+  else if (t.dataset.ack) acknowledge(t.dataset.ack, t);
+  else if (t.dataset.signal) openSignal(t.dataset.signal);
+  else if (t.dataset.range) {
+    range = t.dataset.range;
+    document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', b === t));
+    renderTimeline();
+  } else if (t.dataset.crew) {
+    crew = t.dataset.crew;
+    sessionStorageSet('crew', crew);
+    loadCrew().then(() => { location.hash = '#health'; render(); });
+  } else if (t.id === 's-review') openAlerts();
+  else if (t.id === 'm-mission') openMission();
+  else if (t.id === 'dm-replay') replay();
+  else if (t.id === 'pvt') pvtPress();
+});
+document.addEventListener('change', (e) => { if (e.target.name === 'preset') setPreset(e.target.value); });
+document.addEventListener('keydown', (e) => {  // Space works anywhere on the check-in view once the test runs
+  if (e.code === 'Space' && pvt.running && view() === 'checkin' && e.target.id !== 'pvt') { e.preventDefault(); pvtPress(); }
+});
+$('ci-mood').addEventListener('input', (e) => { touched.mood = true; e.target.classList.add('touched'); $('ci-mood-out').textContent = `${e.target.value} / 10`; });
+$('ci-ex').addEventListener('input', (e) => { touched.ex = true; e.target.classList.add('touched'); $('ci-ex-out').textContent = `${e.target.value} min`; });
+$('ci-form').addEventListener('submit', sendCheckin);
+setInterval(() => { if (pvt.running) pvtStats(); }, 500);
+window.addEventListener('hashchange', route);
+window.addEventListener('resize', renderTimeline);
+
+init().catch(() => {
+  linkUp = false;
+  renderLive();
+  setTimeout(() => location.reload(), 5000);
+});
