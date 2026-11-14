@@ -4,12 +4,13 @@ NASA Space Apps 2026 · astronaut health monitoring. See `CLAUDE.md` for layout 
 
 ## Live demo
 
-**https://nec-closing-vegas-cholesterol.trycloudflare.com**
+**The current link is in this repository's About box (top right of the GitHub page).**
 
 Public, read-only showcase with four simulated crew members (all data is simulated; the model
 output is a research concept, not validated on crew data). It is served from a team laptop through
-a temporary Cloudflare tunnel, so the link works only while that laptop is online and changes
-whenever the tunnel restarts. If it is down, run the project locally:
+a temporary Cloudflare tunnel, so the address changes whenever the tunnel restarts; the About box
+is updated automatically each time. The link works only while that laptop is online. If it is
+down, run the project locally:
 
 ```bash
 uv sync && uv run pytest -q
