@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AURA-Bio · crew health</title>
   <link rel="icon" href="data:,">
+  <script src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/style.css">
   <!-- served locally so the demo runs offline (NFR-7) -->
   <script src="/static/vendor/chart.umd.min.js" defer></script>
@@ -28,6 +29,7 @@
         Mission <b id="m-name">—</b> · ground delay <b class="num" id="m-delay">—</b>
       </button>
       <span>Mission day <b class="num" id="m-day">—</b></span>
+      <button id="theme-toggle" type="button" aria-pressed="false">Use light mode</button>
     </div>
   </header>
 
@@ -39,11 +41,30 @@
       <button type="button" id="s-review" hidden>Review alerts</button>
       <a class="button pri" href="#checkin">Start check-in</a>
     </div>
+    <p class="status-note">Simulated crew data · not a medical device</p>
   </section>
 
   <main id="main" tabindex="-1">
     <!-- My health -->
     <section class="view" id="v-health" aria-label="My health">
+        <section class="card bodymap" aria-labelledby="body-title">
+          <h2 id="body-title">Your body systems</h2>
+          <p class="sub">Select a region or system to inspect its readings.</p>
+          <div class="bodymap-grid">
+            <svg id="figure" viewBox="0 0 240 440" role="group" aria-label="Interactive body systems" aria-describedby="body-note"></svg>
+            <ul class="systems" id="systems"></ul>
+          </div>
+          <p class="fine" id="body-note">Symbolic regions, not an anatomical or diagnostic map. Habitat surrounds the body; metabolic is not measured.</p>
+          <section id="system-detail" aria-labelledby="system-title" hidden>
+            <div class="card-head"><h3 id="system-title" tabindex="-1"></h3><button id="system-close" type="button">Hide detail</button></div>
+            <div id="system-content"></div>
+          </section>
+          <details class="disclosure"><summary>Show more · research scores</summary>
+            <p class="fine">Scores are research concepts, not validated on crew data.</p>
+            <dl class="scores" id="scores"></dl>
+          </details>
+        </section>
+
       <section class="card timeline" aria-labelledby="tl-title">
         <div class="card-head">
           <h2 id="tl-title">Mission timeline · body systems</h2>
@@ -62,20 +83,17 @@
       </section>
 
       <aside class="side">
+        <section class="card alarms" aria-labelledby="alarms-title">
+          <div class="card-head"><h2 id="alarms-title">Alarms to review</h2><button type="button" id="alarms-open">All alerts</button></div>
+          <ul id="alarms"></ul>
+          <p class="fine">Red: higher urgency · Amber: attention. Follow the cited response.</p>
+        </section>
         <section class="card todo" aria-labelledby="todo-title">
-          <h2 id="todo-title">What to do</h2>
+          <h2 id="todo-title">Next onboard actions</h2>
           <ol id="todo"></ol>
-          <p class="cite" id="todo-cite"></p>
+          <details class="disclosure"><summary>Show more · action sources</summary><p class="cite" id="todo-cite"></p></details>
         </section>
-        <section class="card bodymap" aria-labelledby="body-title">
-          <h2 id="body-title">Body systems</h2>
-          <div class="bodymap-grid">
-            <svg id="figure" viewBox="0 0 120 200" role="img" aria-label="Body map"></svg>
-            <ul class="systems" id="systems"></ul>
-          </div>
-          <dl class="scores" id="scores"></dl>
-          <p class="fine">Scores are research concepts, not validated on crew data.</p>
-        </section>
+
       </aside>
     </section>
 
@@ -139,7 +157,8 @@
           </div>
           <a class="button" id="ci-games-open" href="/lunar-arcade-hub/" target="_blank" rel="noopener">Open games in a new tab</a>
         </div>
-        <p class="sub">Opening the hub saves completed game results for this crew member. Scores, accuracy and timings are raw game performance, not validated health measurements; they do not change health alerts or replace the 90-second test.</p>
+        <p class="sub">Opening the hub saves completed game results for this crew member. Raw game performance is not a validated health measurement.</p>
+        <details class="disclosure"><summary>Show more · how game results are used</summary><p>Scores, accuracy and timings do not change health alerts or replace the 90-second test.</p></details>
         <p class="fine">Runs without internet while the local AURA-Bio server is reachable. If a result is not sent, the game tab offers a retry.</p>
         <div class="card-head game-history-head">
           <h3>Recent saved sessions</h3>
@@ -176,7 +195,7 @@
 
   <footer class="foot">
     <b>Not a medical device · all crew data is simulated</b>
-    <span>Research concept. Bands compare you with your own 14-day baseline; limits are tagged published or proposed.</span>
+    <details class="disclosure"><summary>Show more · baseline and limits</summary><p>Research concept. Bands compare you with your own 14-day baseline; limits are tagged published or proposed.</p></details>
     <span class="live" id="live">Connecting…</span>
   </footer>
 
@@ -191,7 +210,7 @@
     <div class="dlg-head"><h2 id="ds-title">Signal</h2><button type="button" class="close" data-close>Close</button></div>
     <p class="sub" id="ds-sub"></p>
     <div class="chart"><canvas id="ds-chart" role="img" aria-label="Trend chart"></canvas></div>
-    <p class="cite" id="ds-cite"></p>
+    <details class="disclosure"><summary>Show more · limits and sources</summary><p class="cite" id="ds-cite"></p></details>
   </dialog>
 
   <!-- Mission panel (FR-13; scenario replay is demo-only, FR-9) -->

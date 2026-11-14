@@ -45,6 +45,7 @@ let range = 'all';
 let linkUp = false;
 let lastPush = null;
 let lastDayTs = null;
+let selectedLane = null;
 const history = {};        // signal -> trend points, loaded for the signals view
 
 // ---------- loading ----------
@@ -61,7 +62,7 @@ async function init() {
   const ids = (await getJson('/crew')) || [];
   crew = sessionStorageGet('crew') || ids[0] || 'cm1';
   if (ids.length && !ids.includes(crew)) crew = ids[0];
-  await loadCrew();
+  await Promise.all([loadCrew(), loadBodyFigure()]);
   linkUp = true;
   lastPush = new Date();
   connect();
@@ -94,14 +95,17 @@ function connect() {
 // ---------- derived facts ----------
 function missionDay() { return timeline && timeline.days.length ? timeline.days[timeline.days.length - 1].day : null; }
 function laneBand(systems, lane) {
-  return lane.systems.length ? worst(lane.systems.map((s) => systems[s] || 'unknown')) : 'unknown';
+  const bands = lane.systems.map((s) => WORD[systems[s]] ? systems[s] : 'unknown');
+  const band = worst(bands);
+  return band === 'green' && bands.includes('unknown') ? 'unknown' : band;
 }
 function flagged() {
   return Object.entries(status.signals)
-    .filter(([, e]) => e.value != null && RANK[e.band] >= RANK.stale)
+    .filter(([, e]) => RANK[e.band] >= RANK.stale)
     .sort((a, b) => RANK[b[1].band] - RANK[a[1].band]);
 }
-const liveAlerts = () => status.alerts.filter((a) => a.active && !a.acknowledged_at);
+const alertOrder = (a, b) => Number(b.active) - Number(a.active) || (RANK[b.level] || 0) - (RANK[a.level] || 0) || b.alert_id - a.alert_id;
+const liveAlerts = () => status.alerts.filter((a) => a.active && !a.acknowledged_at).sort(alertOrder);
 const toReview = () => status.alerts.filter((a) => !a.acknowledged_at);
 function dayOf(ts) {
   if (!timeline || !ts) return null;
@@ -144,6 +148,12 @@ function headline() {
       text: `${who}: building your personal baseline, day ${bday} of ${timeline.baseline_days}.`,
       soft: 'Bands that compare you with yourself start after the baseline period.' };
   }
+  if (!top.length && !live.length && !Object.values(status.signals).some((e) => e.value != null)) {
+    return { band: 'unknown', text: `${who}: no measured signals available.`, soft: 'Check the sensor feed; missing data is not a normal reading.' };
+  }
+  if (!top.length && !live.length && Object.values(status.signals).some((e) => e.value != null && e.band !== 'green')) {
+    return { band: 'unknown', text: `${who}: some measured signals are not classified.`, soft: 'Open system detail to check baseline and data availability.' };
+  }
   if (!top.length && !live.length) {
     return { band: 'green', text: `${who}: every measured signal is within your personal limits.`,
       soft: lastEp ? `Last pattern: ${lower(lastEp.name)}, day ${lastEp.start_day}.` : '' };
@@ -173,6 +183,7 @@ function renderStatus() {
   const rv = $('s-review');
   rv.hidden = !n;
   rv.textContent = `Review ${n} alert${n === 1 ? '' : 's'}`;
+  rv.className = `review ${status ? worst(toReview().filter((a) => a.active).map((a) => a.level)) : 'unknown'}`;
 }
 
 function renderMeta() {
@@ -300,28 +311,52 @@ function renderTodo() {
     sentences((e.response || {}).crew).forEach((s, i) => add(s, i ? '' : detail));
     for (const r of [].concat(e.rule || [])) (r.citation || '').split(/;\s*/).forEach((c) => c && cites.add(c));
   }
-  if (!steps.length) add('Nothing outside your limits; keep your normal routine', 'Take today’s check-in if you have not yet');
-  list.innerHTML = steps.slice(0, 5).map((s) => `<li><div>${esc(s.t)}${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</div></li>`).join('');
+  if (!steps.length) {
+    const measured = Object.values(status.signals).filter((e) => e.value != null);
+    if (measured.length && measured.every((e) => e.band === 'green')) add('Measured signals are within limits; keep your normal routine', 'Take today’s check-in if you have not yet');
+    else add('Check the sensor feed and system detail', 'Missing or unclassified data does not establish normal status');
+  }
+  list.innerHTML = steps.slice(0, 5).map((s) => `<li><div>${esc(s.t)}${s.detail ? `<details class="disclosure"><summary>Show more · context</summary><p class="sub">${esc(s.detail)}</p></details>` : ''}</div></li>`).join('');
   $('todo-cite').textContent = cites.size ? `Sources: ${[...cites].slice(0, 3).join('; ')}` : '';
 }
 
 // ---------- body map (FR-7) ----------
-const FIGURE = {  // stylised outline; one part per system, the habitat drawn as the room around the body
-  habitat: '<rect class="part" data-lane="habitat" x="4" y="4" width="112" height="192" rx="10"/>',
-  neuro: '<circle class="part" data-lane="neuro" cx="60" cy="30" r="13"/>',
-  immune: '<path class="part" data-lane="immune" d="M53 46h14v8H53z"/>',
-  cardio: '<path class="part" data-lane="cardio" d="M42 58h36l3 40H39z"/>',
-  metab: '<path class="part" data-lane="metab" d="M41 102h38l-2 26H43z"/>',
-  bone: '<path class="part" data-lane="bone" d="M44 132h14l-2 56h-9zM62 132h14l-3 56h-9zM38 60l-10 50h7l9-42zM82 60l10 50h-7l-9-42z"/>',
+const REGION_NOTES = {
+  neuro: 'Head region: sleep, reaction and mood signals.',
+  cardio: 'Chest region: heart rate, HRV and blood pressure signals.',
+  immune: 'Upper torso is a symbolic selector for weekly immune labs. Immune function is body-wide.',
+  bone: 'Arms and legs represent bone and muscle monitoring through exercise completion, not direct bone measurements.',
+  habitat: 'The frame represents cabin CO₂ and radiation exposure, not an organ.',
+  metab: 'Abdomen is a symbolic metabolic selector. No metabolic signals are measured in this demo.',
 };
+async function loadBodyFigure() {
+  try {
+    const r = await fetch('/static/images/body-systems.svg');
+    if (!r.ok) throw new Error('body map unavailable');
+    const svg = new DOMParser().parseFromString(await r.text(), 'image/svg+xml').documentElement;
+    $('figure').innerHTML = svg.innerHTML;
+  } catch { $('figure').setAttribute('aria-label', 'Body illustration unavailable; use the system buttons'); }
+}
 function renderBody() {
   const sys = status ? status.systems : {};
-  $('figure').innerHTML = Object.values(FIGURE).join('');
   const bands = {};
   for (const lane of LANES) bands[lane.id] = laneBand(sys, lane);
-  document.querySelectorAll('#figure .part').forEach((p) => p.classList.add(bands[p.dataset.lane]));
-  $('figure').setAttribute('aria-label', `Body map: ${LANES.map((l) => `${l.name} ${WORD[bands[l.id]].toLowerCase()}`).join(', ')}`);
-  $('systems').innerHTML = LANES.map((l) => `<li><span>${l.name}</span><span class="now ${bands[l.id]}">${WORD[bands[l.id]]}</span></li>`).join('');
+  document.querySelectorAll('#figure .part').forEach((p) => {
+    p.setAttribute('class', `part${p.dataset.lane === 'habitat' ? ' habitat' : ''} ${bands[p.dataset.lane]}`);
+    const lane = LANES.find((l) => l.id === p.dataset.lane);
+    p.setAttribute('aria-label', `${lane.name}: ${WORD[bands[lane.id]]}. Show system detail`);
+    p.setAttribute('aria-pressed', String(selectedLane === lane.id));
+  });
+  // Retain control nodes during telemetry updates so keyboard focus is not discarded.
+  if (!$('systems').children.length) $('systems').innerHTML = LANES.map((l) => `<li><button type="button" data-lane="${l.id}" aria-controls="system-detail" aria-pressed="false"><span>${l.name}</span><span class="now"></span></button></li>`).join('');
+  document.querySelectorAll('#systems button').forEach((b) => {
+    const band = bands[b.dataset.lane];
+    b.setAttribute('aria-pressed', String(selectedLane === b.dataset.lane));
+    const word = b.querySelector('.now');
+    word.className = `now ${band}`;
+    word.textContent = WORD[band];
+  });
+  renderSystemDetail();
   if (!status) { $('scores').innerHTML = ''; return; }
   const a = status.anomaly || {};
   const ir = status.immune_risk || {};
@@ -334,6 +369,36 @@ function renderBody() {
     <div><dt>Dose to date</dt><dd>${dose && dose.value != null ? `<b>${round(dose.value)} mSv</b><small>${round(dose.pct_of_limit)}% of the 600 mSv career limit</small>` : '—'}</dd></div>`;
 }
 
+function openSystem(id) {
+  if (!LANES.some((l) => l.id === id)) return;
+  selectedLane = id;
+  renderBody();
+  $('system-title').focus({ preventScroll: true });
+}
+function renderSystemDetail() {
+  const lane = LANES.find((l) => l.id === selectedLane);
+  $('system-detail').hidden = !lane;
+  if (!lane) return;
+  $('system-title').textContent = `${lane.name} · ${WORD[laneBand(status ? status.systems : {}, lane)]}`;
+  const openDetails = new Set([...$('system-content').querySelectorAll('details[open]')].map((d) => d.dataset.detail));
+  const focusSignal = document.activeElement?.dataset?.signal;
+  const focusDetail = document.activeElement?.tagName === 'SUMMARY' ? document.activeElement.closest('details')?.dataset.detail : null;
+  const entries = status ? Object.entries(status.signals).filter(([, e]) => lane.systems.includes(e.system)) : [];
+  const alerts = status ? status.alerts.filter((a) => a.active && Object.keys(a.fired || {}).some((k) => entries.some(([sig]) => sig === k))) : [];
+  $('system-content').innerHTML = `<p class="sub">${REGION_NOTES[lane.id]}</p>${alerts.map((a) => `<button class="alarm-button ${a.acknowledged_at ? '' : a.level}" type="button" data-alert="${a.alert_id}"><span class="urgency ${a.level}">${WORD[a.level]} · ${a.acknowledged_at ? 'acknowledged' : 'active alert'}</span>${esc(a.name)}</button>`).join('')}
+    ${entries.length ? `<ul class="system-readings">${entries.map(([sig, e]) => `<li><div class="reading-head"><button type="button" class="rowbtn" data-signal="${sig}">${esc(nameOf(sig))}</button><b class="now ${e.band}">${esc(fmt(sig, e.value))} · ${WORD[e.band]}</b></div>
+      <p class="fine">${esc(e.provenance || 'provenance unavailable')} · Baseline ${e.baseline_mean == null ? 'not established' : esc(fmt(sig, e.baseline_mean))}</p>
+      <details class="disclosure" data-detail="${sig}"${openDetails.has(sig) ? ' open' : ''}><summary>Show more · limits and reading time</summary><p>${limitsOf(sig, e).map((l) => `${esc(l.text)} (${esc(l.basis)}). ${esc(l.citation)}`).join('<br>') || 'No limit rule for this signal.'}</p><p class="fine">Mission timestamp: ${esc(e.ts || 'not available')}</p></details></li>`).join('')}</ul>` : `<p class="sub">${lane.id === 'metab' ? 'Not measured. No metabolic readings or thresholds are configured.' : 'No readings available for this system. Check the sensor feed.'}</p>`}`;
+  if (focusSignal) $('system-content').querySelector(`[data-signal="${focusSignal}"]`)?.focus({ preventScroll: true });
+  if (focusDetail) $('system-content').querySelector(`[data-detail="${focusDetail}"] summary`)?.focus({ preventScroll: true });
+}
+function renderAlarms() {
+  const list = status ? toReview().sort(alertOrder) : [];
+  $('alarms').innerHTML = list.length ? list.slice(0, 3).map((a) => `<li><button type="button" class="alarm-button ${a.active ? a.level : 'resolved'}" data-alert="${a.alert_id}">
+    <span class="urgency ${a.level}">${WORD[a.level]} · ${a.active ? 'active' : 'resolved, to review'}</span><b>${esc(a.id ? a.name : nameOf(a.signal))}</b>
+    <small>Day ${dayOf(a.started_ts) ?? '—'} · Open reason and response</small></button></li>`).join('') : `<li class="sub">${status ? 'No unacknowledged alerts. Check current system bands for overdue or out-of-limit readings.' : 'Waiting for readings. No alarm state is available yet.'}</li>`;
+}
+
 // ---------- alerts (FR-6) ----------
 function alertHtml(a) {
   const fired = Object.entries(a.fired || {});
@@ -341,22 +406,31 @@ function alertHtml(a) {
   const sysText = a.response_system || (a.response || {}).system || '';
   const cites = a.citation || [].concat(a.rule || []).map((r) => r.citation).join('; ');
   const basis = a.basis || ([].concat(a.rule || []).some((r) => r.basis === 'published') ? 'published' : 'proposed');
-  const state = a.active ? (a.acknowledged_at ? 'Active · acknowledged' : 'Active') : 'Resolved · to review';
-  return `<article class="alert" id="alert-${a.alert_id}">
-    <div class="alert-head"><span class="lvl ${a.level}">${a.level}</span><b>${esc(a.id ? a.name : `${nameOf(a.signal)} red`)}</b>
+  const state = a.active ? (a.acknowledged_at ? 'Active · acknowledged' : 'Active') : a.acknowledged_at ? 'Resolved · acknowledged' : 'Resolved · to review';
+  return `<article class="alert ${esc(a.level)} ${a.active ? 'active' : 'resolved'}${a.acknowledged_at ? ' acknowledged' : ''}" id="alert-${a.alert_id}">
+    <div class="alert-head"><span class="lvl ${a.level}">${WORD[a.level] || esc(a.level)} · ${a.level === 'red' ? 'higher urgency' : 'attention'}</span><b>${esc(a.id ? a.name : `${nameOf(a.signal)} red`)}</b>
       <span class="state${a.active ? ' live' : ''}">${state}</span></div>
     <p class="sub">${a.id ? 'Cross-system pattern' : 'Single signal past a published limit'} · from day ${dayOf(a.started_ts) ?? '?'}${a.last_ts !== a.started_ts ? ` to day ${dayOf(a.last_ts)}` : ''}</p>
     <h4>Why this alert</h4>
     <p>${fired.map(([k, f]) => `${esc(nameOf(k))} ${esc(fmt(k, f.value))} (${f.band})`).join(' · ')}${(a.not_measured || []).length ? ` · not measured: ${esc(a.not_measured.join(', '))}` : ''}</p>
     ${crewText ? `<h4>Suggested response · crew</h4><p>${esc(crewText)}</p>` : ''}
-    ${sysText ? `<h4>Suggested response · medical team</h4><p>${esc(sysText)}</p>` : ''}
     ${a.action ? `<h4>This mission</h4><p>${esc(a.action)}</p>` : ''}
-    <p class="cite">Source: ${esc(cites)} · ${basis} threshold</p>
+    <details class="disclosure"><summary>Show more · medical response and sources</summary>
+    ${sysText ? `<h4>Suggested response · medical team</h4><p>${esc(sysText)}</p>` : ''}
+    <p class="cite">Source: ${esc(cites)} · ${esc(basis)} threshold</p></details>
     ${a.acknowledged_at ? '' : `<div class="acts"><button type="button" data-ack="${a.alert_id}">Acknowledge</button></div>`}
   </article>`;
 }
 function openAlerts(focusId) {
-  const list = status ? [...status.alerts].sort((x, y) => y.active - x.active || y.alert_id - x.alert_id) : [];
+  const dialog = $('d-alerts');
+  const scroll = dialog.scrollTop;
+  const focused = dialog.contains(document.activeElement) ? document.activeElement : null;
+  const ackId = focused?.dataset?.ack;
+  const focusedSummary = focused?.tagName === 'SUMMARY' ? focused.textContent : null;
+  if (focused?.disabled) return; // let an in-flight acknowledgment finish
+  const disclosureKey = (d) => `${d.closest('.alert')?.id || 'episode'}:${d.querySelector('summary')?.textContent}`;
+  const openDetails = new Set([...$('da-list').querySelectorAll('details[open]')].map(disclosureKey));
+  const list = status ? [...status.alerts].sort(alertOrder) : [];
   // one card per alert kind; repeat episodes of the same pattern or signal are listed under it
   const groups = new Map();
   for (const a of list) {
@@ -364,14 +438,21 @@ function openAlerts(focusId) {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(a);
   }
-  $('da-list').innerHTML = list.length ? [...groups.values()].map(([first, ...rest]) => alertHtml(first) + rest.map((a) => `
-    <div class="alert again" id="alert-${a.alert_id}"><p>Also from day ${dayOf(a.started_ts) ?? '?'}${a.last_ts !== a.started_ts ? ` to day ${dayOf(a.last_ts)}` : ''}
-      · ${a.active ? 'active' : 'resolved'} · ${Object.entries(a.fired || {}).map(([k, f]) => `${esc(nameOf(k))} ${esc(fmt(k, f.value))}`).join(' · ')}</p>
-      ${a.acknowledged_at ? '' : `<button type="button" data-ack="${a.alert_id}">Acknowledge</button>`}</div>`).join('')).join('')
+  $('da-list').innerHTML = list.length ? [...groups.values()].map(([first, ...rest]) => alertHtml(first) + rest.map((a) => `<details class="disclosure"><summary>Show more · ${a.active ? 'active' : 'earlier'} ${WORD[a.level]} episode, day ${dayOf(a.started_ts) ?? '—'}</summary>${alertHtml(a)}</details>`).join('')).join('')
     : '<p class="sub">No alerts to review.</p>';
-  $('d-alerts').showModal();
+  $('da-list').querySelectorAll('details').forEach((d) => { if (openDetails.has(disclosureKey(d))) d.open = true; });
+  if (!dialog.open) dialog.showModal();
+  else {
+    dialog.scrollTop = scroll;
+    if (ackId) ($('da-list').querySelector(`[data-ack="${ackId}"]`) || dialog.querySelector('[data-close]')).focus({ preventScroll: true });
+    if (focusedSummary) [...$('da-list').querySelectorAll('summary')].find((s) => s.textContent === focusedSummary)?.focus({ preventScroll: true });
+  }
   const el = focusId && $(`alert-${focusId}`);
-  if (el) el.scrollIntoView({ block: 'start' });
+  if (el) {
+    const disclosure = el.closest('details');
+    if (disclosure) disclosure.open = true;
+    el.scrollIntoView({ block: 'start' });
+  }
 }
 async function acknowledge(id, btn) {
   btn.disabled = true;
@@ -380,8 +461,8 @@ async function acknowledge(id, btn) {
   if (!r || !r.ok) { btn.disabled = false; btn.textContent = 'Not saved, try again'; return; }
   status = await getJson(`/crew/${crew}/status`);
   timeline = await getJson(`/crew/${crew}/timeline`);
+  btn.disabled = false;
   render();
-  if ($('d-alerts').open) openAlerts();
 }
 
 // ---------- signals (FR-10, FR-11) ----------
@@ -410,13 +491,13 @@ async function renderSignals() {
     rows.push(`<tr class="group"><td colspan="6">${lane.name}</td></tr>`);
     for (const [sig, e] of sigs) {
       const lims = limitsOf(sig, e);
-      const prov = e.provenance && e.provenance !== 'simulated' ? `<span class="tag">${esc(e.provenance)}</span>` : '';
+      const prov = `<span class="tag">${esc(e.provenance || (e.value == null ? 'not measured' : 'provenance unavailable'))}</span>`;
       const baseTxt = e.baseline_mean != null ? fmt(sig, e.baseline_mean) : sig === 'cumulative_dose_msv' ? 'derived' : 'building';
       rows.push(`<tr>
         <td><button type="button" class="rowbtn" data-signal="${sig}">${esc(nameOf(sig))}</button>${prov}</td>
         <td>${esc(fmt(sig, e.value))}</td>
         <td>${esc(baseTxt)}</td>
-        <td class="lim">${lims.length ? lims.map((l) => `${esc(l.text)}<span class="tag">${l.basis}</span>`).join('<br>') : 'no rule'}</td>
+        <td class="lim">${lims.length ? `<details class="disclosure"><summary>Show more · limits</summary>${lims.map((l) => `${esc(l.text)}<span class="tag">${esc(l.basis)}</span>`).join('<br>')}</details>` : 'no rule'}</td>
         <td><span class="now ${e.band}">${WORD[e.band]}</span></td>
         <td>${sig === 'cumulative_dose_msv' ? '' : spark(sig)}</td></tr>`);
     }
@@ -425,6 +506,21 @@ async function renderSignals() {
 }
 
 let chart = null;
+function applyChartTheme() {
+  if (!chart) return;
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  for (const ds of chart.data.datasets) {
+    if (ds.label.includes('SD')) { if (ds.backgroundColor) ds.backgroundColor = css('--baseline-fill'); }
+    else ds.borderColor = css(ds.label.startsWith('red') ? '--red' : ds.label.startsWith('amber') ? '--amber' : ds.label === 'Your baseline' ? '--mute' : '--ink');
+  }
+  for (const axis of Object.values(chart.options.scales)) {
+    axis.ticks.color = css('--mute'); axis.grid.color = css('--rule');
+    if (axis.title) axis.title.color = css('--mute');
+  }
+  chart.options.plugins.legend.labels.color = css('--mute');
+  chart.update('none');
+}
+document.addEventListener('themechange', applyChartTheme);
 async function openSignal(sig) {
   const e = status.signals[sig];
   const h = await getJson(`/crew/${crew}/signal/${sig}?days=400`);
@@ -439,7 +535,7 @@ async function openSignal(sig) {
   const flat = (v) => pts.map((p) => ({ x: p.x, y: v }));
   const sets = [{ label: nameOf(sig), data: pts, borderColor: css('--ink'), borderWidth: 2, pointRadius: 0, tension: 0.2 }];
   if (h.baseline_mean != null) {
-    sets.push({ label: 'Baseline + 1 SD', data: flat(h.baseline_mean + h.baseline_sd), borderWidth: 0, pointRadius: 0, fill: '+1', backgroundColor: 'rgba(230,225,213,0.08)' });
+    sets.push({ label: 'Baseline + 1 SD', data: flat(h.baseline_mean + h.baseline_sd), borderWidth: 0, pointRadius: 0, fill: '+1', backgroundColor: css('--baseline-fill') });
     sets.push({ label: 'Baseline − 1 SD', data: flat(h.baseline_mean - h.baseline_sd), borderWidth: 0, pointRadius: 0 });
     sets.push({ label: 'Your baseline', data: flat(h.baseline_mean), borderColor: css('--mute'), borderDash: [4, 4], borderWidth: 1, pointRadius: 0 });
   }
@@ -640,18 +736,25 @@ function render() {
   renderTimeline();
   renderTodo();
   renderBody();
+  renderAlarms();
+  if ($('d-alerts').open) openAlerts();
   if (view() === 'signals') renderSignals();
   if (view() === 'checkin') gameLaunchContext();
 }
 
 // ---------- events ----------
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('button, [data-alert]');
+  const t = e.target.closest('button, [data-alert], [data-lane]');
   if (!t) return;
   if (t.dataset.close !== undefined) t.closest('dialog').close();
   else if (t.dataset.alert) openAlerts(t.dataset.alert);
   else if (t.dataset.ack) acknowledge(t.dataset.ack, t);
   else if (t.dataset.signal) openSignal(t.dataset.signal);
+  else if (t.dataset.lane) openSystem(t.dataset.lane);
+  else if (t.id === 'system-close') {
+    const lane = selectedLane; selectedLane = null; renderBody();
+    document.querySelector(`#systems [data-lane="${lane}"]`)?.focus();
+  }
   else if (t.dataset.range) {
     range = t.dataset.range;
     document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', b === t));
@@ -660,13 +763,17 @@ document.addEventListener('click', (e) => {
     crew = t.dataset.crew;
     sessionStorageSet('crew', crew);
     loadCrew().then(() => { location.hash = '#health'; render(); });
-  } else if (t.id === 's-review') openAlerts();
+  } else if (t.id === 's-review' || t.id === 'alarms-open') openAlerts();
   else if (t.id === 'm-mission') openMission();
   else if (t.id === 'dm-replay') replay();
   else if (t.id === 'pvt') pvtPress();
   else if (t.id === 'ci-games-refresh') renderGameSessions();
 });
 document.addEventListener('change', (e) => { if (e.target.name === 'preset') setPreset(e.target.value); });
+document.addEventListener('keydown', (e) => {
+  const region = e.target.closest('#figure [data-lane]');
+  if (region && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openSystem(region.dataset.lane); }
+});
 document.addEventListener('keydown', (e) => {  // Space works anywhere on the check-in view once the test runs
   if (e.code === 'Space' && pvt.running && view() === 'checkin' && e.target.id !== 'pvt') { e.preventDefault(); pvtPress(); }
 });

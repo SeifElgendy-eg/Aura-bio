@@ -37,7 +37,7 @@ Cross-system pattern detection against a personal baseline: alerts name the sign
 
 ## Brand Commitments
 
-- Name: AURA-Bio. The body map stays (FR-7), smaller and secondary to status and alerts (team choice 2026-11-14).
+- Name: AURA-Bio. The body map stays (FR-7). The requested 2026-11-14 enhancement enlarges it into a clickable web-sourced silhouette beside urgency and onboard actions; the full mission timeline remains below.
 - Direction chosen by the team for the 2026-11-14 redesign, in their words: "Calm instrument: quiet, precise, readable at a glance; dark by default, colour reserved for status, real typography, no glows." The previous film-HUD look (cyan glow, reticles, scan lines, mono everywhere) is retired. The silhouette and organ illustrations in `web/static/images` were made by a teammate and may be reused.
 
 ## Evidence on Hand
@@ -58,3 +58,7 @@ Cross-system pattern detection against a personal baseline: alerts name the sign
 ## Accessibility & Inclusion
 
 WCAG 2.2 AA: contrast, keyboard operation of every control (including the reaction test and modals with Esc and focus handling), status never by colour alone, reduced motion respected. Must read from a distance on a projector.
+
+## Requested console enhancement · 14 November 2026
+
+The user requested a web-sourced human silhouette with six clickable, backend-colored system regions, visible urgency colors, light mode, larger text and Show more disclosure, tailored for an astronaut on a mission. Keep the calm dark default, add an explicit bright-ambient light theme and retain only the local preference. Use symbolic regions and a habitat frame, not diagnostic anatomy. Urgency, next actions, connection/save state and nonmedical/simulated-data labels must not be hidden. See `DESIGN.md` for the refined display tokens and interaction boundaries.

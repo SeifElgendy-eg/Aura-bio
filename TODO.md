@@ -15,3 +15,13 @@
 Hardware and game component PRs #1 and #2 remain open and unmerged. The combined branch contains both components and the finalized model port, preserving the backend console.
 
 Not verified: physical serial device capture/flashing/calibration, real crew/clinical validation, production auth/TLS, mobile or assistive-technology testing. Games need a reachable local AURA-Bio server, not public internet or a warm CDN cache. Wokwi itself still requires its online service and a CI token. See `docs/offline-and-wokwi-verification.md` for actual evidence and setup boundaries.
+
+## Astronaut console enhancements
+
+- [x] Use a human silhouette vector sourced from the web, with its license and provenance recorded and the asset served locally for offline use.
+- [x] Make alarms visible by color-coding urgency levels, retaining text labels, alert state, reason, crew and medical responses, citations and acknowledgment.
+- [x] Add light mode alongside the existing dark mode, including charts, dialogs and status states; retain the display preference when local storage is available.
+- [x] Make each symbolic silhouette region represent a system and be clickable and keyboard-operable, opening the corresponding signals and detail. Habitat/radiation represents the surroundings, not an organ; metabolic has no signal.
+- [x] Change corresponding silhouette-region colors using the backend system bands; unknown and overdue data must not appear green.
+- [x] Increase text size and put longer explanatory text inside Show more sections, without hiding urgent alarms, crew actions, offline/save messages or research/nonmedical labels.
+- [x] Tailor the UI/UX for an astronaut on a space mission: readable controls, mission day/time and ground delay, calm non-flashing urgency, immediate onboard actions and honest simulated-data framing; preserve timeline, check-in and offline games.
