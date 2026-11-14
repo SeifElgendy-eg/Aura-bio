@@ -19,16 +19,22 @@ from pathlib import Path
 
 import numpy as np
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime, BaseModel, Field
 
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
 from core import domain, model_client
+from core.game_sessions import GAME_LABEL, GameSession
+from core.briefing import build_briefing
+from core import notifications
+from core import public_demo
 from core.store import Store
+from generator import showcase
 from generator.sim import SCENARIOS, make_profile, simulate, to_readings
+from model.dataset import BASELINE_DAYS
 
 WEB = Path(__file__).resolve().parent.parent / "web" / "static"
 
@@ -36,6 +42,12 @@ log = logging.getLogger("aura.core")
 store: Store
 mqtt_client: mqtt.Client
 sockets: set[WebSocket] = set()
+notification_sockets: set[WebSocket] = set()
+notification_service: notifications.NotificationService
+notification_worker: asyncio.Task | None = None
+_socket_send_lock = asyncio.Lock()
+_notification_dispatch_cursor = 0
+_push_tasks: set[asyncio.Task] = set()
 _status_lock = threading.Lock()  # one status at a time: a stale overlapping one could reopen a closed alert
 
 
@@ -70,12 +82,13 @@ def set_preset(name: str) -> None:
 
 def anomaly(crew_id: str, base: dict, now: datetime) -> dict:
     """FR-14: model score over up to 14 days of z-scores; optional, never blocks the rule alerts."""
-    if not base:
+    raw = store.baseline_window(crew_id, BASELINE_DAYS)
+    if not raw:
         return {"available": False, "reason": "baseline not ready"}
     first = datetime.fromisoformat(store.span(crew_id)[0])
     n = min(14, (now - first).days + 1)
     snaps = [day_readings(crew_id, now - timedelta(days=k)) for k in range(n)]
-    window = domain.model_window(snaps, base, model_signals())
+    window = domain.model_window(snaps, domain.model_baselines(raw), model_signals())
     return model_client.score(crew_id, window)
 
 
@@ -138,12 +151,50 @@ def _crew_status(crew_id: str) -> dict | None:
 
 
 async def broadcast(crew_id: str) -> None:
-    msg = crew_status(crew_id)
-    for ws in list(sockets):
+    global _notification_dispatch_cursor
+    async with _socket_send_lock:
+        msg = crew_status(crew_id)
+        for ws in list(sockets):
+            try:
+                await ws.send_json(msg)
+            except Exception:  # noqa: BLE001  a dead socket must not stop the others
+                sockets.discard(ws)
+        pending = store.notification_events_after(_notification_dispatch_cursor)
+        for event in pending:
+            await _send_notification_frame(event)
+            _notification_dispatch_cursor = event["id"]
+            _queue_push_delivery(event)
+
+
+async def _send_notification_frame(event: dict) -> None:
+    frame = {"type": "notification", "notification":
+             {k: event[k] for k in ("id", "crew_id", "alert_id", "name", "level", "ts", "kind")}}
+
+    for ws in list(notification_sockets):
         try:
-            await ws.send_json(msg)
+            await ws.send_json(frame)
         except Exception:  # noqa: BLE001  a dead socket must not stop the others
             sockets.discard(ws)
+            notification_sockets.discard(ws)
+
+
+def _queue_push_delivery(event: dict) -> None:
+    task = asyncio.create_task(notification_service.deliver(event))
+    _push_tasks.add(task)
+    task.add_done_callback(_push_tasks.discard)
+
+
+async def notification_loop() -> None:
+    # Existing seed/history is deliberately drained at startup, not pushed to new browsers.
+    global _notification_dispatch_cursor
+    _notification_dispatch_cursor = store.notification_cursor()
+    while True:
+        async with _socket_send_lock:
+            for event in store.notification_events_after(_notification_dispatch_cursor):
+                await _send_notification_frame(event)
+                _notification_dispatch_cursor = event["id"]
+                _queue_push_delivery(event)
+        await asyncio.sleep(0.1)
 
 
 def start_mqtt(loop: asyncio.AbstractEventLoop) -> mqtt.Client:
@@ -166,23 +217,51 @@ def start_mqtt(loop: asyncio.AbstractEventLoop) -> mqtt.Client:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global store, mqtt_client
+    global store, mqtt_client, replay, notification_service, notification_worker
     store = Store(os.environ.get("AURA_DB", "core.db"))
+    notification_service = notifications.NotificationService(store, os.environ.get("AURA_DB", "core.db"))
     mqtt_client = start_mqtt(asyncio.get_running_loop())
+    notification_worker = asyncio.create_task(notification_loop())
     yield
+    await showcase.runner.shutdown()
+    if notification_worker and not notification_worker.done():
+        notification_worker.cancel()
+        await asyncio.gather(notification_worker, return_exceptions=True)
+    if _push_tasks:
+        await asyncio.gather(*_push_tasks, return_exceptions=True)
+    if replay and not replay.done():
+        replay.cancel()
+        await asyncio.gather(replay, return_exceptions=True)
     mqtt_client.loop_stop()
 
 
 app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
 # a web app served from another port may call the API; any origin is fine for a local demo with simulated data
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(public_demo.PublicDemoMiddleware)
 app.mount("/static", StaticFiles(directory=WEB), name="static")
+app.mount("/lunar-arcade-hub", StaticFiles(directory=WEB / "lunar-arcade-hub", html=True), name="games")
 replay: asyncio.Task | None = None
 
 
 @app.get("/", include_in_schema=False)
 def index():
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/notifications-sw.js", include_in_schema=False)
+def notifications_worker_script():
+    return FileResponse(WEB / "notifications-sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/briefing")
+def briefing_download():
+    statuses = [status for crew_id in store.crews() if (status := crew_status(crew_id))]
+    body = build_briefing(mission(), statuses, ground_reports())
+    return Response(body, media_type="text/plain; charset=utf-8", headers={
+        "Content-Disposition": 'attachment; filename="aura-bio-briefing.txt"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.post("/scenario/{name}")
@@ -194,7 +273,7 @@ async def run_scenario(name: str, crew_id: str = "cm1", seed: int = 12, speed: f
         raise HTTPException(422, f"unknown scenario {name}; choose from {list(SCENARIOS)}")
     if replay:
         replay.cancel()
-    store.clear(crew_id)
+    store.clear(crew_id, include_games=False)  # scenario replay must not erase recorded game sessions
     rng, sc = np.random.default_rng(seed), SCENARIOS[name]
     msgs = to_readings(crew_id, simulate(make_profile(rng, mission()["name"]), sc.days, rng, sc))
 
@@ -207,6 +286,37 @@ async def run_scenario(name: str, crew_id: str = "cm1", seed: int = 12, speed: f
 
     replay = asyncio.create_task(run())
     return {"scenario": name, "crew_id": crew_id, "days": sc.days, "seed": seed, "seconds_per_day": speed}
+
+
+@app.get("/showcases")
+def get_showcases():
+    """The four safe, simulated story cards and their current replay progress."""
+    return showcase.runner.cards()
+
+
+@app.post("/showcase/{name}")
+async def run_showcase(name: str, speed: float = Query(showcase.DEFAULT_SPEED,
+                                                         ge=showcase.MIN_SPEED,
+                                                         le=showcase.MAX_SPEED)):
+    """Replay one catalog scenario on its fixed reserved demo crew only."""
+    claim = None
+    if public_demo.enabled() and name in showcase.CATALOG:
+        claim, retry_after = public_demo.reserve_showcase(name)
+        if claim is None:
+            raise HTTPException(429, f"showcase {name} is cooling down; retry in {retry_after} seconds",
+                                headers={"Retry-After": str(retry_after)})
+    try:
+        return await showcase.runner.start(name, speed, clear=store.reset_showcase, ingest=ingest,
+                                            broadcast=broadcast, mission_name=lambda: mission()["name"])
+    except showcase.ShowcaseUnknown as e:
+        public_demo.release_showcase(name, claim)
+        raise HTTPException(422, str(e)) from None
+    except (showcase.ShowcaseRunning, showcase.ShowcaseCollision) as e:
+        public_demo.release_showcase(name, claim)
+        raise HTTPException(409, str(e)) from None
+    except ValueError as e:
+        public_demo.release_showcase(name, claim)
+        raise HTTPException(422, str(e)) from None
 
 
 class CheckIn(BaseModel):
@@ -227,6 +337,41 @@ class MissionChange(BaseModel):
 def health():
     return {"status": "ok", "mqtt_connected": mqtt_client.is_connected(),
             "readings": store.count(), "rejects": store.count("reject")}
+
+
+@app.get("/notifications/config")
+def notifications_config():
+    return notification_service.config()
+
+
+@app.get("/notifications")
+def get_notifications(after: int = Query(0, ge=0)):
+    events, cursor = store.notifications(after)
+    return {"notifications": events, "cursor": cursor}
+
+
+@app.post("/notifications/subscriptions")
+async def add_notification_subscription(request: Request):
+    try:
+        notification_service.subscribe(await request.json())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(422, "invalid subscription JSON") from None
+    except notifications.SubscriptionError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(429, str(exc)) from None
+    return {"subscribed": True}
+
+
+@app.delete("/notifications/subscriptions")
+async def remove_notification_subscription(request: Request):
+    try:
+        removed = notification_service.unsubscribe(await request.json())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(422, "invalid subscription JSON") from None
+    except notifications.SubscriptionError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return {"removed": removed}
 
 
 @app.get("/crew")
@@ -360,13 +505,41 @@ async def checkin(c: CheckIn):
     return {"accepted": [s for s, v in ok.items() if v], "rejected": [s for s, v in ok.items() if not v]}
 
 
+@app.post("/game-sessions")
+async def save_game_session(request: Request):
+    try:
+        # Manual validation keeps NaN/inf error replies JSON-safe (no invalid input echoed into a response).
+        c = GameSession.model_validate(await request.json())
+    except ValueError:
+        raise HTTPException(422, "Invalid game session: check game ID, crew, finite results and aware timestamp") from None
+    last = store.span(c.crew_id)[1]
+    ts = c.ts or (datetime.fromisoformat(last) if last else datetime.now(timezone.utc))
+    if c.ts:
+        c.ts = c.ts.astimezone(timezone.utc)
+    body = c.model_dump(mode="json")
+    try:
+        created = store.add_game_session(body, ts.astimezone(timezone.utc).isoformat())
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
+    return {"saved": str(c.session_id), "created": created, "label": GAME_LABEL}
+
+
+@app.get("/crew/{crew_id}/game-sessions")
+def game_history(crew_id: str, limit: int = Query(20, ge=1, le=100)):
+    return {"crew_id": crew_id, "sessions": store.game_sessions(crew_id, limit), "label": GAME_LABEL}
+
+
 @app.websocket("/ws")
 async def ws_status(ws: WebSocket):
     """Pushes a crew member's full status after every reading stored for them."""
     await ws.accept()
     sockets.add(ws)
+    # Typed event frames are opt-in so existing status-only clients keep their protocol.
+    if ws.query_params.get("notifications") == "1":
+        notification_sockets.add(ws)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
         sockets.discard(ws)
+        notification_sockets.discard(ws)

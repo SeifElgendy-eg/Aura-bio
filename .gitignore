@@ -157,3 +157,4 @@ artifacts/
 
 # core service
 *.db
+*.vapid.pem

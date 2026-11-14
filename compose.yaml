@@ -1,4 +1,4 @@
-# docker compose up --build   (plan 3.7). Train first so artifacts/ exists: uv run python -m model.train
+# deploy/model/build.sh on a fresh clone, then: docker compose up --build   (plan 3.7)
 services:
   broker:
     image: eclipse-mosquitto:2
@@ -16,10 +16,15 @@ services:
     depends_on: [broker]
     restart: unless-stopped
   model:
-    build: .
-    command: uvicorn model.service:app --host 0.0.0.0 --port 8001
+    build:
+      context: .
+      dockerfile: deploy/model/Dockerfile
+    image: aura-bio/model:local
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     ports: ["8001:8001"]
-    volumes: [./artifacts:/app/artifacts:ro]
     restart: unless-stopped
 volumes:
   broker-data:
