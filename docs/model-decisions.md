@@ -557,7 +557,66 @@ sleep duration 100%, dose 98%, resting HR 97%, sleep efficiency 95%, mood 84%, H
 systolic BP 75%, lapses 69%, CO₂ 27%. At 1 spread most signals sit at 11–15%, i.e. at the healthy level;
 sleep efficiency (53%), exercise (49%), lapses (31%) and sleep duration (31%) stand out. Section 14's
 conclusion holds: single-signal drift is the rules' job, BP and mood need numeric rules, CO₂ belongs to
-the absolute limits.
+the absolute limits. Details of the measurement: 16.4.
+
+### 16.4 The longer sweep, in detail
+
+**What the sweep is.** 60 evaluation-only scenarios (`model/eval_scenarios.py`, run by every
+`model.train`): each of the 10 model inputs drifts alone in its harmful direction (BP: up) by 1, 2 or 3
+times its population day-to-day spread (`sim_sd`), either fast (3-day linear ramp) or slow (21-day ramp),
+plus `sweep_normal`, a healthy astronaut run for the same length. Onset is day 21, as for the demo
+scenarios (14 baseline days + 7). 100 astronauts per scenario (half of the 200 used for the demo
+scenarios and patterns). "Flagged" means the share whose combined score crossed 1 at least once after
+onset, i.e. exactly what `/score` would have reported.
+
+**Why the earlier 40-day runs under-measured slow drifts.** A 40-day run watches 19 days after onset
+(days 21–39). A fast 3-day ramp is at full size from day 23 and holds it for 17 days: fair. A slow
+21-day ramp only reaches full size on day 41, after the run has ended; on its last day it is at 19/21 ≈
+90% of the intended size, and the EWMA (memory ≈ 5 days) plus the 2-day confirmation lag for the
+autoencoder have not caught up with even that. The slow column was therefore measuring "a drift still
+ramping up", not "a sustained drift of m spreads", so fast and slow were not comparable. The old resting
+HR result (3 spreads, slow: 31%) looked like the model could not see slow drift; most of that gap was
+the run length, not the detector.
+
+**The fix.** `SWEEP_DAYS = 60`: a slow ramp reaches full size on day 41 and holds it for ~19 days; a fast
+ramp holds it for ~37. `tests/test_slow_sweep_runs_long_enough_to_reach_full_size` requires every sweep
+scenario to keep its largest ramp at full size for at least 14 days, so a later edit to a ramp length
+cannot silently bring the problem back.
+
+**The longer watch also collects more false alarms — hence the healthy reference.** Watching 39 days
+instead of 19 gives both detectors more chances to cross their lines on ordinary noise. The healthy
+share rose from 4% (19 days) to 10% (39 days). Every run therefore prints `sweep_normal` next to the
+sweep, and sweep numbers are read against that 10%, not against the 4% of the demo scenarios: a sweep
+number near 10% means "not detected", and a few points between seeds are noise at 100 astronauts.
+
+**What changed (combined detector, % flagged; the table in point 4 has the numbers):**
+
+- **Fast rows rise 8–11 points**, in line with the healthy rise (4% → 10%): the extra days add
+  false-alarm chances, not detection.
+- **Slow rows rise 13–36 points**, because the ramp now completes and is held; that is the real
+  correction. Slow drifts now score close to fast ones: 77% vs 80% overall at 3 spreads, resting HR 91%
+  vs 97%.
+- **At 1 spread** slow 22% and fast 25% are barely above the 10% healthy level: a single small drift is
+  still mostly invisible, which is by design (the model is built for several signals drifting together;
+  the threshold rules own single signals, section 14).
+- **At 2 spreads** slow 51% vs fast 56%, and at 3 spreads 77% vs 80%: onset speed matters little once the
+  drift is large enough.
+
+**Per signal at 3 spreads (fast, 60 days):** sleep duration 100%, dose 98%, resting HR 97%, sleep
+efficiency 95%, mood 84%, HRV 81%, exercise 78%, systolic BP 75%, lapses 69%, CO₂ 27%. CO₂ remains the
+exception (cabin CO₂ wanders naturally; the absolute NASA limits are the right tool). At 1 spread most
+signals sit at 11–15%, i.e. at the healthy level; sleep efficiency (53%), exercise (49%), lapses (31%)
+and sleep duration (31%) stand out because one population spread is already a large absolute change for
+them (≈4.9 points off 92% efficiency, 4 points off 98% exercise, 5.4 points off 7.5% lapses, ≈1 h off
+6.5 h sleep), and the baseline blend reacts to that size.
+
+**Why not longer.** The sweep is the expensive part of a training run: 61 scenarios × 100 astronauts ×
+60 days, for every seed. The EWMA's memory is about 5 days and an autoencoder alarm needs 2 days in a
+row, so 39 days after onset already show a sustained drift many times over; more days would mostly add
+healthy exposure and runtime. The sweep still reports only "ever flagged": `evaluate()` also computes
+the median day of the first flag and the pre-onset false-alarm rate for each sweep scenario, but
+`summarise()` does not print them, so latency by size is not reported. Printing those per sweep scenario
+is a possible follow-up.
 
 **Final results (3 seeds, mean and range):**
 
@@ -598,4 +657,3 @@ our results table) were resolved in the merge commit.
 training only while each signal has one reading per day (the generator); a sensor publishing more often
 needs a daily value first. The model port is published (`8001:8001`); only the core needs it. A 422 from
 the model is treated as "model down" for 10 s.
-

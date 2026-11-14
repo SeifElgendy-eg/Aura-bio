@@ -7,3 +7,12 @@ uv sync && uv run pytest -q
 uv run python -m model.train
 uv run uvicorn model.service:app --port 8001
 ```
+
+Container image for the model service (trains `artifacts/` first if missing):
+
+```bash
+deploy/model/build.sh
+docker run --rm -p 8001:8001 --read-only --tmpfs /tmp aura-bio/model:local
+```
+
+See `deploy/model/README.md` for deployment details.

@@ -26,6 +26,7 @@ Read first: `CLAUDE.md`, `docs/model-decisions.md` (how and why the model got he
 | `model/train.py`       | Trains on normal days only; alarm lines = 99.5th percentile over 1,000 validation astronauts; `evaluate()` runs 200 astronauts per scenario over `--seeds` training seeds |
 | `model/service.py`     | FastAPI `/score`, `/health`. Score > 1 = anomalous. Returns the top detector, per-signal contributions and signed drift |
 | `generator/sim.py`     | The simulator and the 7 scenarios. Your training data comes from here                                                        |
+| `deploy/model/`        | Docker image for the scoring service (multi-stage, CPU torch, non-root, healthcheck); see its README                          |
 
 ## Where the model stands (plan 6.3)
 
@@ -108,4 +109,17 @@ autoencoders removed; alarm lines at 99.5% of 1,000 validation astronauts. Reaso
 | Bad input at `/score` | Done: NaN/inf rejected with a clean 422 (the default error reply crashed with a 500); values clipped at ±8 like training |
 | Model version | Done: `model_version` (hash of the trained files) in `/health` and every `/score` reply |
 | Alarm-line stability | 1,000 validation astronauts (was 300): detection ranges tightened; the EWMA line's number still differs by seed because the per-signal scale is fitted per seed, which doesn't change detection |
-| Slow sweep under-measured | Done: sweep runs 60 days with a 60-day healthy reference |
+| Slow sweep under-measured | Done: sweep runs 60 days, so a 21-day slow ramp holds full size for ~19 days (40-day runs stopped at 90% of size and read low); `sweep_normal` is the 60-day healthy reference, 10% flagged over 39 days. Details: decisions 16.4 |
+| Container image | Done: `deploy/model/` builds a self-contained image (trained artifacts baked in, CPU-only, non-root, healthcheck; Compose runs it read-only); measured 1.34 GB, `/score` p50 2.1 ms, restart to healthy 4.5 s. See `deploy/model/README.md` |
+
+## Deploying the service
+
+```bash
+deploy/model/build.sh                                   # trains artifacts/ if missing, then builds
+docker compose -f deploy/model/compose.yaml up -d      # or: docker run -p 8001:8001 ...
+curl -s localhost:8001/health
+```
+
+The core reaches it at `http://model:8001` (`AURA_MODEL_URL`) on the team's Compose network. The image
+contains the trained files, so it needs no host volume; `AURA_ARTIFACTS` can point at a mount to swap
+models without rebuilding. Rebuild after every retrain so `model_version` changes with the files.

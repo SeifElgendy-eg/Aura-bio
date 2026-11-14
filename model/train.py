@@ -121,6 +121,8 @@ def main() -> None:
     ap.add_argument("--quantile", type=float, default=0.995,
                     help="alarm line per detector; 0.995 + 2-day confirmation flags ~5%% of healthy astronauts in 19 days (plan 6.3)")
     ap.add_argument("--seeds", type=int, default=3, help="training seeds to compare over; the first is saved")
+    ap.add_argument("--no-eval", action="store_true",
+                    help="train seed 0 and save artifacts only, skipping the scenario evaluation (fast image builds)")
     a = ap.parse_args()
     assert 1 <= a.seeds <= 9, "data seeds 1+100k / 2+100k must stay below the evaluation seeds (1000+)"
 
@@ -136,8 +138,12 @@ def main() -> None:
                 save(artifact(w), m, thr, sig)
             ewma.save(ARTIFACTS / "ewma.json", *ew)
         print()
-        runs.append(evaluate(models, ew))
-    summarise(runs)
+        if not a.no_eval:
+            runs.append(evaluate(models, ew))
+    if runs:
+        summarise(runs)
+    else:
+        print(f"\nSaved {', '.join(str(artifact(w)) for w in WINDOWS)} and {ARTIFACTS / 'ewma.json'} (evaluation skipped)")
 
 
 if __name__ == "__main__":

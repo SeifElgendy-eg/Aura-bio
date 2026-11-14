@@ -2,8 +2,12 @@
 
 SWEEP: every model input drifting alone in its harmful direction (BP: up), by 1, 2 or 3 times its population
 day-to-day spread (signals.yaml sim_sd), fast (3-day ramp) or slow (21-day ramp). Covers "any one signal goes bad".
-Sweep runs last SWEEP_DAYS, so a slow ramp holds at full size for ~18 days; `sweep_normal` is the healthy reference over
-the same length (a longer watch also gives more chances for a false flag).
+Sweep runs last SWEEP_DAYS: onset is day 21, so a slow 21-day ramp reaches full size on day 41 and holds it for
+~19 days (a fast ramp holds it for ~37). The earlier 40-day runs ended at day 39, before a slow ramp completed:
+they measured a drift still in progress (90% of size on the last day), which is why slow numbers read low.
+`sweep_normal` is the healthy reference over the same length: a longer watch also gives more chances for a false
+flag (4% over 19 days, 10% over 39), so sweep numbers are read against it, not against the demo-scenario healthy
+figure. Details and the 40-vs-60-day table: docs/model-decisions.md 16.4.
 
 PATTERNS: the research doc's cross-system patterns (Nasa pre hackathon section 7 and 4.4), using only the parts the
 model sees. Sizes are the research doc's AMBER thresholds (proposed, not published effect sizes); 7-day ramp.

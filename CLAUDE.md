@@ -24,6 +24,8 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 - `docs/model-decisions.md` — why the model looks the way it does: every step, measurement and rejected option.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).
+- `deploy/model/` — Docker image for the scoring service: multi-stage build, CPU torch, non-root,
+  healthcheck, artifacts baked in; `deploy/model/README.md` has the details. Build: `deploy/model/build.sh`.
 
 ## Commands
 Python is pinned <3.14 (torch); uv picks 3.12. Torch comes from the CPU wheel index.
@@ -33,6 +35,8 @@ If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run python data/validate.py` — simulator vs the real data (also run by `tests/test_validation.py`)
 - `uv run uvicorn model.service:app --port 8001`
+- `deploy/model/build.sh` — train artifacts if missing (~25 s) and build `aura-bio/model:local`;
+  `docker compose -f deploy/model/compose.yaml up -d` runs it on :8001
 - `uv run python -m generator.publish --scenario sleep_debt --crew cm1 --speed 10` (needs a broker on :1883); add `--replay [--co2-source RR-5|RR-3|stitched]` and `--preset` for the demo
 - Data decisions (cleaning rules, cut-offs, calibration values, scenario sizes) are the user's call: show the numbers and ask first.
 
