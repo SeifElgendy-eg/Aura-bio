@@ -212,14 +212,67 @@ def test_model_window_matches_model_service():
     from contract.schema import model_signals
     from core.domain import model_window
     names = model_signals()
-    snaps = [{"resting_hr_bpm": {"value": 70.0}}, {}]  # today, yesterday
+    snaps = [{"resting_hr_bpm": {"value": 70.0}}, {}, {}]  # today, yesterday, two days ago
     w = model_window(snaps, {"resting_hr_bpm": (60.0, 5.0)}, names)
-    assert w["resting_hr_bpm"] == [0.0, 2.0] and set(w) == set(names)
+    assert w["resting_hr_bpm"] == [0.0, 0.0, 2.0] and set(w) == set(names)
     from pathlib import Path
     if not Path("artifacts/model_2d.pt").exists():
         pytest.skip("no trained model")
     from model.service import ScoreRequest, score
-    assert score(ScoreRequest(crew_id="cm1", window=w)).window_days == 2
+    response = score(ScoreRequest(crew_id="cm1", window=w))
+    assert response.detector in {"2d", "ewma"} and len(response.model_version) == 12
+
+
+def test_model_scaling_matches_dataset_for_full_missing_constant_and_partial_signals():
+    import numpy as np
+    from contract.schema import model_signals
+    from core.domain import model_baselines, model_window
+    from generator.sim import make_profile, simulate
+    from model.dataset import baseline_stats, normalise
+
+    names = model_signals()
+    rng = np.random.default_rng(7)
+    df = simulate(make_profile(rng), 20, rng)
+    expected = normalise(df)
+    stats = model_baselines({n: df[n].tolist() for n in df})
+    snaps = [{n: {"value": float(df.iloc[i][n])} for n in names} for i in (19, 18, 17)]
+    live = model_window(snaps, stats, names)
+    for n in names:
+        assert live[n] == pytest.approx(expected[n].iloc[17:20].round(4).tolist())
+
+    partial = df.copy()
+    partial.loc[:4, "sleep_duration_h"] = np.nan
+    partial.loc[:13, "cabin_co2_mmhg"] = 2.0
+    partial_raw = {n: partial[n].iloc[:14].dropna().tolist() for n in partial}
+    partial_expected_centre, partial_expected_spread = baseline_stats(partial[names])
+    partial_stats = model_baselines(partial_raw)
+    for n in names:
+        if not np.isnan(partial_expected_centre[n]):
+            assert partial_stats[n] == pytest.approx((partial_expected_centre[n], partial_expected_spread[n]))
+    assert np.all(partial_expected_spread["cabin_co2_mmhg"] > 0)  # constant baseline uses population spread
+    assert np.all(partial_expected_spread["sleep_duration_h"] > 0)  # missing samples still blend by count
+    assert partial_expected_centre["sleep_duration_h"] == pytest.approx(partial["sleep_duration_h"].iloc[:14].mean())
+    assert normalise(partial)["sleep_duration_h"].iloc[:5].eq(0).all()
+
+
+def test_model_window_caps_and_anomaly_waits_for_fourteen_days():
+    from contract.schema import Reading, model_signals
+    from core.domain import model_window
+    from core import app as core_app
+    from core.store import Store
+
+    names = model_signals()
+    clipped = model_window([{"resting_hr_bpm": {"value": 1000.0}}, {}],
+                           {"resting_hr_bpm": (0.0, 1.0)}, names)
+    assert clipped["resting_hr_bpm"] == [0.0, 8.0]
+
+    core_app.store = Store(":memory:")
+    for day in range(13):
+        core_app.store.add(Reading(crew_id="cm1", ts=T0 + timedelta(days=day), signal="resting_hr_bpm",
+                                   value=60.0, source="app", provenance="simulated"))
+    assert core_app.anomaly("cm1", {}, T0 + timedelta(days=12)) == {
+        "available": False, "reason": "baseline not ready"
+    }
 
 
 def test_model_sees_a_dropped_sensor_as_baseline(client, monkeypatch):

@@ -30,6 +30,7 @@ from core import domain, model_client
 from core.game_sessions import GAME_LABEL, GameSession
 from core.store import Store
 from generator.sim import SCENARIOS, make_profile, simulate, to_readings
+from model.dataset import BASELINE_DAYS
 
 WEB = Path(__file__).resolve().parent.parent / "web" / "static"
 
@@ -71,12 +72,13 @@ def set_preset(name: str) -> None:
 
 def anomaly(crew_id: str, base: dict, now: datetime) -> dict:
     """FR-14: model score over up to 14 days of z-scores; optional, never blocks the rule alerts."""
-    if not base:
+    raw = store.baseline_window(crew_id, BASELINE_DAYS)
+    if not raw:
         return {"available": False, "reason": "baseline not ready"}
     first = datetime.fromisoformat(store.span(crew_id)[0])
     n = min(14, (now - first).days + 1)
     snaps = [day_readings(crew_id, now - timedelta(days=k)) for k in range(n)]
-    window = domain.model_window(snaps, base, model_signals())
+    window = domain.model_window(snaps, domain.model_baselines(raw), model_signals())
     return model_client.score(crew_id, window)
 
 

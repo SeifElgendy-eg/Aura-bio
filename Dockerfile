@@ -1,4 +1,4 @@
-# One image for both services; compose.yaml picks the command.
+# Core image; the model uses deploy/model/Dockerfile.
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 WORKDIR /app
 COPY pyproject.toml uv.lock ./

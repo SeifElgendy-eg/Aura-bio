@@ -4,6 +4,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from statistics import mean, stdev
+import pandas as pd
+from contract.schema import model_signals
+from model.dataset import Z_CAP, baseline_stats
 
 ORDER = ("unknown", "green", "stale", "amber", "red")  # a system shows the worst of its signals
 log = logging.getLogger("aura.core")
@@ -137,12 +140,23 @@ def immune_risk(signals: dict[str, dict], cfg: dict) -> dict:
             "label": "research concept, not validated on crew data; placeholder weights"}
 
 
+def model_baselines(raw: dict[str, list[float]]) -> dict[str, tuple[float, float]]:
+    """Model-only baselines from raw first-14-day values; health baselines stay persisted separately."""
+    names = model_signals()
+    frame = pd.DataFrame({n: pd.Series(raw.get(n, []), dtype=float) for n in names})
+    centre, spread = baseline_stats(frame)
+    return {n: (float(centre[n]), float(spread[n])) for n in names
+            if pd.notna(centre[n]) and pd.notna(spread[n])}
+
+
 def model_window(snapshots: list[dict[str, dict]], baselines: dict[str, tuple[float, float]],
                  names: list[str]) -> dict[str, list[float]]:
     """Daily z-scores for the model service, oldest first (snapshots[0] = today). Missing = baseline (0)."""
     def z(snap, n):
         r, b = snap.get(n), baselines.get(n)
-        return 0.0 if not r or not b else (r["value"] - b[0]) / max(b[1], 1e-3)  # same sd floor as model.dataset
+        if not r or not b:
+            return 0.0
+        return max(-Z_CAP, min(Z_CAP, (r["value"] - b[0]) / max(b[1], 1e-3)))
     return {n: [round(z(snap, n), 4) for snap in reversed(snapshots)] for n in names}
 
 
