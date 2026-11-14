@@ -6,6 +6,8 @@ The console remains a calm operating instrument, served by the existing FastAPI 
 
 Keep status, current crew, mission day, ground delay, connection state and next onboard actions visible. Use static red and amber alarms with written levels, never flashing animation or color alone. Alerts retain their backend reason, cited crew response, medical-team response, mission wording and acknowledgment. Resolved and acknowledged episodes recede; acknowledgment does not mean resolution. Long explanations and citations use native Show more sections. Nonmedical, simulated-data and game-save/offline statements remain visible.
 
+Alarm cards carry the corresponding backend red/amber background hue in the sidebar, system detail and alert dialog. Active cards use 14% hue, hover 20%; resolved-to-review cards use a quieter 8% tint, hover 12%. Secondary text is derived from the urgency text and foreground tokens, not washed-out gray. Acknowledged cards are neutral. Severity and active/resolved/acknowledged labels remain distinct in both themes; historical urgency does not imply an active alarm.
+
 The body selector and onboard-action column lead into a full-width mission timeline. Each of six regions has an equivalent named button and Enter/Space operation. The complete CC0 Openclipart silhouette remains intact beneath symbolic system overlays; there is no clipping, masking or cut-away anatomy; habitat/radiation is a frame around the body, not an organ. Region mappings are symbolic selectors. Immune function is body-wide; bone/muscle currently uses exercise completion, not direct bone measurements. Metabolic remains not measured. No region implies anatomical diagnosis.
 
 ## Tokens and type

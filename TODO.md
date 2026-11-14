@@ -35,3 +35,5 @@ Not verified: physical serial device capture/flashing/calibration, real crew/cli
 Follow-up verified: 160 tests passed, 1 existing skip; all four actual 40-day demo replays completed. Original CM2 status/timeline/424 readings/7 games unchanged. See `docs/drift-and-showcase-verification.md`.
 
 - [x] Show the drift contribution chart only after the user requests it. Start collapsed on each page load, provide an accessible show/hide button, and keep backend shares, trend links, theme support and model-unavailable messaging intact when opened. Three focused Python checks and their Node UI/delayed-response assertions passed; actual Enter/Space opening, click hiding and fresh-document reset verified.
+
+- [x] Highlight alarm cards with their backend urgency hue in both themes. Retain red/amber labels, use a weaker tint for resolved-to-review episodes and neutral acknowledged cards, and preserve readable text, hover/focus and alert actions. Three focused tests passed; 28 DOM-only theme/state/text-contrast checks passed with a minimum 4.92:1, alongside actual dark/light card inspection.

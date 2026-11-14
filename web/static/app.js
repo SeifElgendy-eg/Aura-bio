@@ -414,7 +414,7 @@ function renderSystemDetail() {
 }
 function renderAlarms() {
   const list = status ? toReview().sort(alertOrder) : [];
-  $('alarms').innerHTML = list.length ? list.slice(0, 3).map((a) => `<li><button type="button" class="alarm-button ${a.active ? a.level : 'resolved'}" data-alert="${a.alert_id}">
+  $('alarms').innerHTML = list.length ? list.slice(0, 3).map((a) => `<li><button type="button" class="alarm-button ${esc(a.level)} ${a.active ? 'active' : 'resolved'}" data-alert="${a.alert_id}">
     <span class="urgency ${a.level}">${WORD[a.level]} · ${a.active ? 'active' : 'resolved, to review'}</span><b>${esc(a.id ? a.name : nameOf(a.signal))}</b>
     <small>Day ${dayOf(a.started_ts) ?? '—'} · Open reason and response</small></button></li>`).join('') : `<li class="sub">${status ? 'No unacknowledged alerts. Check current system bands for overdue or out-of-limit readings.' : 'Waiting for readings. No alarm state is available yet.'}</li>`;
 }
