@@ -4,7 +4,12 @@ NASA Space Apps 2026 · astronaut health monitoring. See `CLAUDE.md` for layout 
 
 ## Live demo
 
-**The current link is in this repository's About box (top right of the GitHub page).**
+### 👉 [Open the live demo](https://nec-closing-vegas-cholesterol.trycloudflare.com)
+
+<https://nec-closing-vegas-cholesterol.trycloudflare.com>
+
+If that link does not answer, use the one in this repository's About box (top right of the GitHub
+page); it always holds the newest address.
 
 Public, read-only showcase with four simulated crew members (all data is simulated; the model
 output is a research concept, not validated on crew data). It is served from a team laptop through
