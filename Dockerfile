@@ -9,4 +9,5 @@ COPY core core
 COPY model model
 COPY generator generator
 COPY web/static web/static
+COPY deploy/render/seed_demo.py seed_demo.py
 ENV PATH=/app/.venv/bin:$PATH

@@ -28,6 +28,7 @@ from pydantic import AwareDatetime, BaseModel, Field
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
 from core import domain, model_client
 from core.game_sessions import GAME_LABEL, GameSession
+from core import public_demo
 from core.store import Store
 from generator import showcase
 from generator.sim import SCENARIOS, make_profile, simulate, to_readings
@@ -184,6 +185,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="AURA-Bio core service", lifespan=lifespan)
 # a web app served from another port may call the API; any origin is fine for a local demo with simulated data
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(public_demo.PublicDemoMiddleware)
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 app.mount("/lunar-arcade-hub", StaticFiles(directory=WEB / "lunar-arcade-hub", html=True), name="games")
 replay: asyncio.Task | None = None
@@ -229,14 +231,23 @@ async def run_showcase(name: str, speed: float = Query(showcase.DEFAULT_SPEED,
                                                          ge=showcase.MIN_SPEED,
                                                          le=showcase.MAX_SPEED)):
     """Replay one catalog scenario on its fixed reserved demo crew only."""
+    claim = None
+    if public_demo.enabled() and name in showcase.CATALOG:
+        claim, retry_after = public_demo.reserve_showcase(name)
+        if claim is None:
+            raise HTTPException(429, f"showcase {name} is cooling down; retry in {retry_after} seconds",
+                                headers={"Retry-After": str(retry_after)})
     try:
         return await showcase.runner.start(name, speed, clear=store.reset_showcase, ingest=ingest,
                                             broadcast=broadcast, mission_name=lambda: mission()["name"])
     except showcase.ShowcaseUnknown as e:
+        public_demo.release_showcase(name, claim)
         raise HTTPException(422, str(e)) from None
     except (showcase.ShowcaseRunning, showcase.ShowcaseCollision) as e:
+        public_demo.release_showcase(name, claim)
         raise HTTPException(409, str(e)) from None
     except ValueError as e:
+        public_demo.release_showcase(name, claim)
         raise HTTPException(422, str(e)) from None
 
 

@@ -52,7 +52,8 @@ RUN rm -rf /app/.venv/lib/python3.12/site-packages/torch/test \
 COPY contract ./contract
 COPY generator ./generator
 COPY model ./model
-COPY artifacts ./artifacts
+ARG AURA_ARTIFACTS_BUILD=artifacts
+COPY ${AURA_ARTIFACTS_BUILD} ./artifacts
 
 # Fail the build, not the container, on a broken image: deps import, trained files exist and load,
 # and the model version is printed into the build log (traceability for every stored score).
