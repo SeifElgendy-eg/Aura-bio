@@ -2,9 +2,9 @@
 
 ## Delivered scope
 
-The backend-served calm timeline console is preserved. This integration combines the host Serial/capture/stdin → MQTT bridge, the published Lunar Arcade Hub raw check-ins, and the finalized anomaly-model deployment with compatible core scaling. It does not import the retired main/frontend/model-branch UI.
+The backend-served calm timeline console is preserved. This integration combines the host Serial/capture/stdin → MQTT bridge, the published Lunar Arcade Hub raw check-ins, and the finalized anomaly-model deployment with compatible core scaling. It does not import the retired main/frontend/model-branch UI. The later [offline-game and actual-Wokwi follow-up](offline-and-wokwi-verification.md) also includes the narrowly ported firmware component and supersedes the original CDN/token limitations.
 
-Source baseline: `backend` `45811995bfbf62016921bccd292c1753c2b85e34` (refetched before final save). Components: hardware `a7c67916ad9ae734ec181f5d28c8243b68fcb018`, games `efa97792e956671a91390e342ea4c1c373934258`, narrow model port `438e91dd1f1a4ae087b30c4645f1051b7720c07a`. The actual combined core runtime was built from `44dc461834054cfe05f1ac0f42d30e8eefd1c68f`; subsequent handoff changes are documentation only. Hardware and games also have open component PRs #1 and #2. Review the combined PR as the full-stack entry point; no PR was merged during this work.
+Source baseline: `backend` `45811995bfbf62016921bccd292c1753c2b85e34` (refetched before final save). Components: hardware `a7c67916ad9ae734ec181f5d28c8243b68fcb018`, games `efa97792e956671a91390e342ea4c1c373934258`, narrow model port `438e91dd1f1a4ae087b30c4645f1051b7720c07a`. The actual combined core runtime was built from `44dc461834054cfe05f1ac0f42d30e8eefd1c68f`; later vendored static assets were checked separately and copied into the preview without rebuilding that image. Hardware and games also have open component PRs #1 and #2. Review the combined PR as the full-stack entry point; no PR was merged during this work.
 
 ## Observed checks
 
@@ -47,4 +47,4 @@ Sandbox acceptance used a separate Docker socket, project name, ports and volume
 
 ## Honest limits
 
-No actual Wokwi execution (missing `WOKWI_CLI_TOKEN`), physical serial capture, device flashing or hardware calibration was completed. Synthetic transport fixtures are not firmware execution evidence. No real crew or clinical validation, production authentication/TLS or load/security certification is claimed. The base console's assets are vendored, but the game loader still needs external Pygbag/CDN runtime assets on first load; it is not fully offline. Desktop/projector rendering was inspected; mobile and assistive-technology testing were not completed. The sandbox runtime is a temporary verification preview, not a published always-on deployment.
+Actual Wokwi execution and a cold-offline game launch are now verified in the follow-up report; the original synthetic transport fixtures above remain explicitly synthetic. Physical serial capture, device flashing and hardware calibration were not completed. No real crew or clinical validation, production authentication/TLS or load/security certification is claimed. Games require a reachable local AURA-Bio server, but no public CDN; Wokwi itself still requires its online service and token. Desktop/projector rendering was inspected; mobile and assistive-technology testing were not completed. The sandbox runtime is a temporary verification preview, not a published always-on deployment.

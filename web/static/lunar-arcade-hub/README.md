@@ -2,7 +2,7 @@
 
 The published Pygbag 0.9.3 game visuals, timing and scoring are preserved. Open **Check-in → Open games in a new tab** in the existing FastAPI console. The hub launches at `/lunar-arcade-hub/?crew=<selected-id>&ts=<mission-time>`; the crew and mission time are captured when it opens. Opening the hub opts into saving completed sessions for that crew. The existing 90-second reaction check-in remains separate and unchanged.
 
-The first launch downloads the Python/Pygbag runtime from its external CDN and needs internet. The core console itself still uses vendored assets. Click the Pygbag start overlay once to unlock audio. Browser databases are namespaced by the selected crew; old standalone progress is not exported or assigned to an assumed crew. Launching `/lunar-arcade-hub/` without a crew is standalone play and never uploads results to AURA.
+The Pygbag 0.9.3 / CPython 3.12 runtime is vendored under `runtime/`, including the pinned wasm/data pack, bootstrap, local package index and pygame-ce wheel. A cold launch needs only the local game origin; the core service is still required for AURA session saves. Click the Pygbag start overlay once to unlock audio. Browser databases are namespaced by the selected crew; old standalone progress is not exported or assigned to an assumed crew. Launching `/lunar-arcade-hub/` without a crew is standalone play and never uploads results to AURA.
 
 ## What is saved
 
@@ -32,8 +32,12 @@ node tests/test_game_bridge.cjs   # optional Node self-check, no npm dependencie
 
 The standard-library packer reproducibly writes both `lunar_arcade_hub.tar.gz` (ordinary web hosts) and `lunar_arcade_hub.apk` (ZIP, itch.zone loader). Both preserve the published `assets/` paths and contain identical source bytes. The JS bridge is loaded by the existing HTML loader outside its protected Python/HTML separator. The alternative `/static/lunar-arcade-hub/index.html` route remains available.
 
+The runtime source URLs, licenses, and SHA-256 checksums are recorded in `runtime/SOURCES.json`; notices are in `runtime/LICENSES.md`. Verify the committed mirror with `python tools/refresh_pygbag_runtime.py`. To refresh it deliberately, use `python tools/refresh_pygbag_runtime.py --refresh`; the script fails if any pinned upstream byte changes, so a dependency update must repin the manifest in review.
+
 ## Integration checks
 
 Automated tests cover all six game IDs, finite/bounded input, JSON-safe errors, immutable UUID/crew/time retries, storage restart/reset behavior, archive parity/determinism, performance-only export, and browser outbox recovery/isolation/multiple tabs. Node is optional for Python-only environments. A real browser Speed Click round also completed through the Pygbag runtime and saved via the shared Python → JS → core path, while `/health` remained at zero canonical readings. This is a transport/data-capture check, not a validated reaction-performance measurement.
+
+A later cold-offline check blocked all public origins with enforced CSP and no-store responses. Required runtime/index/wheel/game assets loaded same-origin, an actual Speed Click round saved its matching UUID once, and the separate populated core stayed at 424 readings/0 rejects. Evidence is in `docs/offline-and-wokwi-verification.md` from the repository root. This does not claim six gameplay trials or mobile testing.
 
 A pre-existing console PVT deadline bug was repaired during integration: the 90-second test now stops even if its final stimulus is never answered and cannot accept a late response. The 90-second duration, 355 ms lapse cutoff, stimulus delays and health check-in payload are unchanged. This does not replace the separate games with the PVT protocol.

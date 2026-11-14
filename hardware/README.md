@@ -1,8 +1,8 @@
 # Hardware connection
 
-`bridge.py` forwards the Serial JSON emitted by the `hardware` branch's `firmware/src/main.cpp` to the existing MQTT bus. It does not generate readings, change timestamps, fill missing sensors, calculate health bands, or require the anomaly model.
+`bridge.py` forwards the Serial JSON emitted by `firmware/src/main.cpp` to the existing MQTT bus. It does not generate readings, change timestamps, fill missing sensors, calculate health bands, or require the anomaly model.
 
-The path is **Wokwi/ESP32 Serial → host bridge → Mosquitto → core → existing web console**. Firmware remains on the `hardware` branch. Run the bridge from a checkout containing this module, and supply the Serial output from your firmware checkout.
+The path is **Wokwi/ESP32 Serial → host bridge → Mosquitto → core → existing web console**. The integrated branch includes the firmware component from `hardware` commit `29b7e82915cf6cb50674cbfcbf70fa2650dedb91`, with freshly compiled custom-chip WASM; no retired hardware-branch UI was imported. Build/run instructions are in `firmware/README.md` and actual execution evidence is in `docs/offline-and-wokwi-verification.md`.
 
 ## Start the existing bus
 
