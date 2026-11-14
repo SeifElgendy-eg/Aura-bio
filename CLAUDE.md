@@ -14,10 +14,14 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 - `contract/presets.yaml` — mission presets (dose level, quality factor, delay).
 - `generator/` — `replay.py` swaps in real ISS CO2/dose as `provenance: replayed` (opt-in `--replay`); `sim.py` simulates per-astronaut baselines + AR(1) noise + scenario effects
   (plan 6.2: co2_creep, sleep_debt, deconditioning, sensor_loss, solar_event, immune [90 days]); `publish.py` replays to MQTT.
-- `model/` — `dataset.py` (baseline z-normalisation; windows of 2, 7, 14 days), `autoencoder.py` (dense AE; one model per window length),
-  `train.py` (trains on normal days only, threshold = p99 normal error, saves `artifacts/model_{2,7,14}d.pt`), `service.py` (FastAPI
+- `model/` — two detectors (plan 4.3): `autoencoder.py` (dense AE on 2-day windows: sudden change; alarm confirmed on 2 days in a
+  row) and `ewma.py` (one-sided EWMA drift score: slow drift; harmful direction per signal = `harmful` in `signals.yaml`).
+  `dataset.py` (baseline scaling: spread blended with population, k = 6, deviations capped ±8; the core service must match it;
+  windows, `confirmed()`), `eval_scenarios.py` (per-signal sweep + research-doc patterns, evaluation only), `train.py` (normal days only, alarm lines = p99.5 of 300
+  validation astronauts; saves `artifacts/model_2d.pt` + `artifacts/ewma.json`; evaluates over `--seeds`), `service.py` (FastAPI
   `/score`, `/health`; separate container so rule alerts survive a model crash, NFR-4).
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.
+- `docs/model-decisions.md` — why the model looks the way it does: every step, measurement and rejected option.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).
 
@@ -25,7 +29,7 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 Python is pinned <3.14 (torch); uv picks 3.12. Torch comes from the CPU wheel index.
 If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
 - `uv sync` · `uv run pytest -q`
-- `uv run python -m model.train` — trains the 3 models, then reports detection rate, days to detection and false alarms over 200 simulated astronauts per scenario
+- `uv run python -m model.train` — trains the 2-day autoencoder and calibrates the EWMA score, then reports detection rate, days to detection and false alarms over 200 simulated astronauts per scenario, for 3 training seeds (`--seeds`)
 - `uv run python data/process.py` — raw data to `data/processed/`
 - `uv run python data/validate.py` — simulator vs the real data (also run by `tests/test_validation.py`)
 - `uv run uvicorn model.service:app --port 8001`

@@ -9,6 +9,8 @@ AURA-Bio is astronaut health-monitoring software for the NASA Space Apps 2026 ch
 | Section | Change |
 | --- | --- |
 | 1.2, 4.3 | Anomaly model: three autoencoders on 2-, 7- and 14-day windows instead of one short window |
+| 4.3, 6.3 | Baseline spread blended with the population spread (k = 6, fitted on real data) and deviations capped at ±8; evaluation extended to a per-signal sweep (60 scenarios) and 6 research-doc patterns |
+| 1.2, 4.3, 6.3 | Anomaly model is now two detectors: a 2-day autoencoder (sudden change, alarm confirmed on 2 days in a row) and a one-sided EWMA drift score (slow drift); 7- and 14-day autoencoders dropped; alarm line 99.5%; harmful direction per signal in `contract/signals.yaml` |
 | 4.1 | Resting heart rate defined as nocturnal (lowest 30-min mean during sleep) |
 | 4.1, 4.2 | New signal `dose_mgy` (daily absorbed dose, per astronaut) and a model input; mission presets live in `contract/presets.yaml` |
 | 4.4 | Dose rates and quality factors verified against the papers; radiation limits added |
@@ -47,7 +49,7 @@ On long missions a crew cannot rely on real-time medical support from Earth. Hea
 | --- | --- |
 | Simulated sensors and lab analyzers in Wokwi | Real hardware |
 | Per-astronaut baselines, threshold bands, cross-system pattern alerts | Diagnosis or treatment decisions |
-| One anomaly model (autoencoder on 2-, 7- and 14-day windows) and an immune-risk score | Validation against real crew outcomes |
+| One anomaly model (2-day autoencoder plus an EWMA drift score) and an immune-risk score | Validation against real crew outcomes |
 | Flutter app: body map, alerts, trends, daily check-in | Modelling assay chemistry inside analyzers |
 | Mission presets: station, Moon, Mars | Multi-vehicle or ground-station software |
 
@@ -260,13 +262,13 @@ One JSON message per reading:
 
 ### 4.3 Evaluation logic
 
-1. **Baseline.** Mean and spread per astronaut and signal over the baseline period. Later readings are expressed as deviations.
+1. **Baseline.** Mean and spread per astronaut and signal over the 14-day baseline period. Later readings are expressed as deviations in spreads, capped at ±8. The spread is blended with the population's day-to-day spread for that signal (`sim_sd` in `contract/signals.yaml`): spread² = (13 × own² + 6 × population²) / 19, so 14 unusually steady or unusually wild days can't skew every later reading. The weight 6 is the value that best predicted people's later spread on real BIDSleep and ISS CO₂ data (6.3). `model/dataset.py` is the reference implementation; the core service must match it.
 2. **Bands.** Each reading maps to green, amber or red from `thresholds.yaml`.
 3. **Patterns.** The combined findings in section 7 of the research doc, expressed as rules over bands. One alert per match, with signals, citation and both response lists.
-4. **Anomaly score.** Three autoencoders trained on normal days only, one per window length: 2 days (sudden change), 7 days and 14 days (slow drift). Input is the window of signals expressed as standard deviations from the astronaut's own 14-day baseline. High reconstruction error means the period does not look like this astronaut's normal. Each model's alarm line is where 99% of normal days score below it (about 1 false alarm per 100 normal days). The service returns the highest score, which window produced it, and each signal's share of the error.
+4. **Anomaly score.** Two detectors over the signals expressed as standard deviations from the astronaut's own 14-day baseline. *Sudden change:* an autoencoder trained on normal 2-day windows; high reconstruction error means the last two days do not look like this astronaut's normal, and its alarm needs two days in a row. *Slow drift:* a one-sided EWMA drift score: each signal's daily deviation is averaged over recent days with more weight on recent ones (λ 0.2), keeping its direction; movement in the harmless direction (e.g. more sleep) is ignored, using the `harmful` direction per signal in `contract/signals.yaml`; the rest is squared and summed. Each detector's alarm line is where 99.5% of normal days score below it. The service returns the higher of the two, which detector produced it, each signal's share, and each signal's direction of drift.
 5. **Immune-risk score.** A weighted sum of deviations in NK activity, T-cell function, sIgA, HRV, sleep, radiation dose and microbiome change. Weights are placeholders; the app labels the score as a research concept.
 
-The autoencoders train on generated normal days whose levels, day-to-day spread and day-to-day persistence come from real data where available (section 5.3). They demonstrate the method and are not validated on crew data. All three share one architecture and one training script; no other model type is planned.
+The autoencoders train on generated normal days whose levels, day-to-day spread and day-to-day persistence come from real data where available (section 5.3). They demonstrate the method and are not validated on crew data. The EWMA score learns nothing; its per-signal scale and alarm line are measured on the same simulated normal days. One training script builds and evaluates both.
 
 ### 4.4 Mission presets
 
@@ -318,7 +320,7 @@ Visual style: dark background, translucent body figure, thin glowing overlays, i
 | Generator | Python, paho-mqtt | Same language as backend |
 | Core service | Python, FastAPI, Pydantic | REST, WebSocket and validation with little code; shares a language with the model |
 | Storage | SQLite | No setup |
-| Model | PyTorch (CPU build) autoencoders in their own FastAPI service | Trains on a laptop in about a minute per window length |
+| Model | PyTorch (CPU build) autoencoder plus a NumPy EWMA score in their own FastAPI service | Trains on a laptop in about a minute |
 | Data processing | Python, pandas, scipy; uv for the environment | Reads the raw datasets once into small tables |
 | App | Flutter with fl\_chart, flutter\_svg, web\_socket\_channel, Riverpod | One codebase for web and mobile |
 | Packaging | Docker Compose | One command to start |
@@ -415,7 +417,7 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 | Scenario | Input | Expected result |
 | --- | --- | --- |
 | CO₂ creep | CO₂ rises 1.2 mmHg above the cabin's own level over 8 days; headache logged; reaction lapses up 25% | Environment amber then red; pattern "CO₂-associated performance impairment"; response: check ventilation. Caught by the rules, not by the anomaly model (score peaks at 0.9, below the alarm line of 1) |
-| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down about 0.4 points, through the everyday sleep–mood link (astronaut stress ratings by sleep length, Jones et al. 2022) | Anomaly score crosses the alarm line on day 4 (2-day window), day 7 (7-day) and day 9 (14-day); neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
+| Sleep debt | Sleep falls 2.4 h below the astronaut's own baseline over five days; RMSSD down 25%; reaction lapses up 14 percentage points by day 14 and still rising; mood down about 0.4 points, through the everyday sleep–mood link (astronaut stress ratings by sleep length, Jones et al. 2022) | Anomaly score (EWMA drift) crosses the alarm line about 6 days after onset in 97% of astronauts; neuro and cardio amber; pattern "sleep-loss-related impairment". "Score rises before any band changes" is not yet verified against the rule engine |
 | Deconditioning (exercise lapses) | Exercise completion drops to 70%; resting heart rate rises 12 bpm over 21 days; HRV down 10%. Sizes are this plan's proposal: on the ISS, resting HR stays flat when crew exercise (Hughson et al.); bed rest without exercise raises it | Cardio and musculoskeletal amber; pattern "cardiovascular deconditioning"; response: exercise review and ECG |
 | Preset change | CO₂ creep replayed under the Mars transit preset | Same alert reads as onboard protocol with a queued report |
 | Sensor loss | Pulse chip stops publishing | Heart rate and HRV show stale, never green |
@@ -424,19 +426,54 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 
 ### 6.3 Model performance
 
-Measured over 200 simulated astronauts per scenario (`model.train` prints this); onset on day 21; "any" = highest of the three windows, as the service reports.
+Measured over 3 training seeds (`model.train` prints this; mean and range across seeds), 200 simulated astronauts per scenario (100 per sweep scenario); onset on day 21, flags counted over the 19 days after; "combined" = higher of the two detectors, as the service reports. Alarm lines at 99.5% of 300 validation astronauts; the autoencoder alarm needs 2 days in a row; baseline spread blended (k = 6), deviations capped at ±8 (4.3).
 
-| Scenario | Flagged after onset (any window) | Median days to first flag | Best single window |
+| Scenario | Flagged after onset | Median days to first flag | Before the scaling fixes (Nov 13) |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 19% of astronauts over 20 days; 1.5% of normal days | — | 14-day: 1% |
-| Sleep debt | 64% | 6 | 2-day: 61% |
-| Deconditioning | 84% | 6 | 2-day: 82%; 7-day: 62% |
-| Solar particle event | 97% | same day | 2-day: 97% |
-| CO₂ creep | 32% (barely above normal) | 9 | caught by the rules instead |
-| Immune dysregulation | 18% (= normal) | — | lab values are not model inputs; caught by the rules |
-| Sensor loss | 14% | — | handled by stale marking (FR-8) |
+| Normal (false alarms) | 4% of astronauts over 19 days (4–5); under 0.1% of normal days | — | 7% |
+| Sleep debt | 100% | 5 | 97% |
+| Deconditioning | 96% (96–97) | 4 | 86% |
+| Solar particle event | 100% (99–100) | 1 (the confirmation day) | 91% |
+| CO₂ creep | 25% (22–28) | 13 | 14%; the rules catch it |
+| Immune dysregulation | 5% (= normal) | — | lab values are not model inputs; caught by the rules |
+| Sensor loss | 4% (= normal) | — | handled by stale marking (FR-8) |
 
-After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%. Adding the real sleep duration–efficiency link (5.3) and retraining moved them to 79% and 86%, with false alarms 1.1% → 1.4% of days; deconditioning does not touch sleep, so most of that swing is run-to-run variation from retraining on new random data, not the link. Treat single numbers as ±10–20 points. Linking mood to sleep (and dropping the double-counted −0.8 sleep-debt mood effect) then took sleep debt to 64% while deconditioning stayed at 84%, so that drop is real: sleep debt's mood change is now smaller and mood dips after short nights are normal. The plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
+Research-doc patterns (section 7 and 4.4 of the research doc), model-visible parts only, sizes at the doc's amber thresholds (proposed; `model/eval_scenarios.py`):
+
+| Pattern (model-visible part) | Flagged | Before the scaling fixes |
+| --- | --- | --- |
+| Radiation + immune (dose +50%) | 100% | 100% |
+| Vascular (systolic +15 mmHg, dose +50%) | 100% | 100% |
+| Autonomic stress / illness (HR +10 bpm, RMSSD −20%, sleep efficiency −10 points) | 94% | 79% |
+| Bone resorption (exercise completion 80%) | 82% | 64% |
+| Stress-associated autonomic (sleep 5 h, RMSSD −20%) | 48% | 23% |
+| CO₂ performance (CO₂ +0.8 mmHg, lapses +20%) | 10% (= normal) | 10%; the rules catch it |
+
+Not representable (no model input): viral reactivation, oral mucosal defence, energy deficit.
+
+**Single-signal sweep** (60 scenarios: each input drifting alone in its harmful direction by 1, 2 or 3 population day-to-day spreads, over 3 or 21 days). The model is built to catch several signals moving together, so one signal alone is caught late or not at all unless the drift is large: on average 13% at 1 spread, 33% at 2, 56% at 3 (fast onset 3 spreads: sleep duration 100%, dose 98%, resting HR 78%, systolic BP 56%; CO₂ 18%). Slow onsets reach full size only near the end of the 19 days, so they score lower. Single-signal drift is the threshold rules' job (4.1); CO₂ drifts naturally so much that the model hardly sees a CO₂-only change.
+
+**Scaling fixes (Nov 14).** Tested one at a time over 3 seeds on all 73 scenarios; kept only if no scenario got worse beyond run-to-run variation (about 4 points):
+
+| Step | Healthy flagged | Sleep debt | Deconditioning | Solar | Sweep average | Kept? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Before (mean and SD, no cap) | 7% | 97% | 86% | 91% | 23% | — |
+| Cap deviations at ±6 | 5% | 100% | 97% | 30% | 35% | Cap kept at a higher value (below) |
+| + blend spread with population, k = 6 | 4% | 100% | 97% | 86% | 37% | Yes |
+| + median and MAD instead of mean and SD | 7% | 100% | 98% (4–5 days later) | 57% | 40% | No: solar and timing worse; a median-based spread is noisier over 14 days |
+| + slower EWMA (λ 0.1) | 3% | 100% | 98% (1 day later) | 86% | 37% | No: gains within noise, deconditioning flagged later |
+| Blend, cap ±8 (final) | 4% | 100% | 96% | 100% | 34% | Yes: the only setting with every scenario equal or better than before |
+| Blend, cap ±10 / no cap | 6% / 6% | 100% | 95% / 91% | 99% | 32% / 26% | No |
+
+The cap helps because a few huge deviations on healthy days (heavy-tailed lapses and exercise, slowly drifting CO₂) set the alarm lines; capping them lowers the lines so real drift stands out. At ±6 it also flattened the one-day solar spike (about 9 spreads), hence ±8. Blending fixed CO₂: its 14-day baseline spread was typically half its real day-to-day spread, so the size of its smoothed deviation on healthy days was 6.3 spreads; blended, 1.3.
+
+**Choosing k.** On real data, a person's spread from their baseline days was blended with the population spread for k from 0 to 140, and compared with the spread they actually showed afterwards (BIDSleep resting HR, sleep duration and efficiency: 43 people; ISS CO₂: 10 missions, 14-day baselines). Error (mean squared log ratio): own spread only 1.61; k = 6 0.391 (best; 5–8 within 0.002); population spread only 0.456. The simulator gives every astronaut the same day-to-day spread, so it can't choose k; the real data can.
+
+**Why two detectors (Nov 13).** Over the same 3 seeds, the three autoencoders flagged 74% of sleep-debt astronauts (64–84) and 21% of healthy astronauts; the 2-day autoencoder plus the EWMA score flagged 99% and 19%. EWMA works because it averages each signal before squaring, so a steady drift adds up while day-to-day noise cancels; the 7- and 14-day autoencoders square first and lost slow drift in noise. Every case they caught, EWMA caught too, so they were dropped.
+
+**Why the stricter alarm line.** With two detectors each tuned to 1% of normal days and checked daily, about 18% of healthy astronauts are flagged at least once in 19 days by chance alone. A false-alarm study over 3 seeds: 99% → 18% of healthy astronauts; confirming the autoencoder over 2 days → 10%; plus a 99.5% line → 5–7%, at the cost of the solar event moving from same day to the next day and deconditioning losing a few points; 99.9% → 2%, but detection fell to 56–60%. Setting the lines from 300 instead of 60 validation astronauts steadied the EWMA line (49–52 across seeds instead of 32–48).
+
+Earlier history (three autoencoders): After the final data calibration (realistic, skewed spreads for lapses and exercise; slow CO₂ drift), the 7- and 14-day windows lost sensitivity, and matching the spreads to the real data (5.3: more day-to-day heart-rate noise) cut sleep debt and deconditioning from ~77% to 64%. Adding the real sleep duration–efficiency link (5.3) and retraining moved them to 79% and 86%, with false alarms 1.1% → 1.4% of days; deconditioning does not touch sleep, so most of that swing is run-to-run variation from retraining on new random data, not the link. Treat single numbers as ±10–20 points. Linking mood to sleep (and dropping the double-counted −0.8 sleep-debt mood effect) then took sleep debt to 64% while deconditioning stayed at 84%, so that drop is real: sleep debt's mood change is now smaller and mood dips after short nights are normal. The plain mean-and-spread scaling against a 14-day baseline is thrown by heavy tails. A robust scaling (e.g. median and spread that ignore outliers) is the first thing to try when model work resumes.
 
 ## 7. Delivery
 

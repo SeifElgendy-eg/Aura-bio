@@ -9,6 +9,11 @@
 #   follows: {other: {edges: [...], change: [...]}} = today's value moves by the change for the bin (split at edges)
 #     that other's value today falls in, minus the change at this astronaut's usual value; other must come EARLIER;
 #   p = chance per sample for yes/no signals; interval_days = sampled every N days;
+#   harmful: high|low|both = direction that counts as worse for the EWMA drift score (model/ewma.py), from the amber/red
+#     rows of the research doc ("Nasa pre hackathon" 4.1-4.6, 5); every model input needs one. BP is both (severe
+#     hypertension; low BP with dizziness on standing).
+#   sim_sd is also the population day-to-day spread that each astronaut's baseline spread is blended with
+#     (model/dataset.py baseline_stats, plan 4.3): changing it changes live scaling, not only the generator.
 #   min/max = hard limits of the scale (values clipped). `model: true` signals form the autoencoder input, IN THIS ORDER.
 # Every value is SOURCED, ESTIMATED (derived, rough) or an ASSUMPTION (no published data). Full list: data/SOURCES.md.
 #
@@ -55,16 +60,16 @@
 #   completion % is published); ar 0.4 for rmssd_ms, bp_systolic_mmhg, reaction_lapses_pct, mood_score,
 #   exercise_completion_pct.
 signals:
-  - {name: resting_hr_bpm,         system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 60.1, sim_sd: 3.84, person_sd: 4.63, ar: 0.25,  model: true}
-  - {name: rmssd_ms,               system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 55,   sim_sd: 17,   person_sd: 15,  log: true,  model: true}
-  - {name: bp_systolic_mmhg,       system: cardiovascular, group: vitals,    source: generator, sim_mean: 117,  sim_sd: 9,    person_sd: 10,   model: true}
-  - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 6.5,  sim_sd: 0.98, person_sd: 0.64, ar: -0.20, min: 0, max: 24,  model: true}
-  - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 91.8, sim_sd: 4.89, person_sd: 4.39, ar: -0.27, corr: {sleep_duration_h: 0.74}, log_from: 100, min: 0, max: 100,  model: true}
-  - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 5.4,  person_sd: 6.5,  log: true, min: 0, max: 100, model: true}
-  - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 6.2,  sim_sd: 0.6,  person_sd: 1.7,  logit: [0, 10], follows: {sleep_duration_h: {edges: [4, 5, 6, 7, 8, 9], change: [-0.77, -0.38, -0.26, -0.05, 0, 0.11, 0.05]}}, min: 0, max: 10, model: true}
-  - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.56, person_sd: 0.39, ar: 0.87, min: 0.76,  model: true}
-  - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    log_from: 100, min: 0, max: 100, model: true}
-  - {name: dose_mgy,               system: radiation,      group: radiation, source: generator, sim_mean: 0.285, sim_sd: 0.0158, person_sd: 0.0255, ar: -0.05, log: true, model: true}
+  - {name: resting_hr_bpm,         system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 60.1, sim_sd: 3.84, person_sd: 4.63, ar: 0.25,  harmful: high, model: true}
+  - {name: rmssd_ms,               system: cardiovascular, group: vitals,    source: wokwi,     sim_mean: 55,   sim_sd: 17,   person_sd: 15,  log: true,  harmful: low, model: true}
+  - {name: bp_systolic_mmhg,       system: cardiovascular, group: vitals,    source: generator, sim_mean: 117,  sim_sd: 9,    person_sd: 10,   harmful: both, model: true}
+  - {name: sleep_duration_h,       system: neurocognitive, group: vitals,    source: generator, sim_mean: 6.5,  sim_sd: 0.98, person_sd: 0.64, ar: -0.20, min: 0, max: 24,  harmful: low, model: true}
+  - {name: sleep_efficiency_pct,   system: neurocognitive, group: vitals,    source: generator, sim_mean: 91.8, sim_sd: 4.89, person_sd: 4.39, ar: -0.27, corr: {sleep_duration_h: 0.74}, log_from: 100, min: 0, max: 100,  harmful: low, model: true}
+  - {name: reaction_lapses_pct,    system: neurocognitive, group: vitals,    source: app,       sim_mean: 7.5,  sim_sd: 5.4,  person_sd: 6.5,  log: true, min: 0, max: 100, harmful: high, model: true}
+  - {name: mood_score,             system: neurocognitive, group: vitals,    source: app,       sim_mean: 6.2,  sim_sd: 0.6,  person_sd: 1.7,  logit: [0, 10], follows: {sleep_duration_h: {edges: [4, 5, 6, 7, 8, 9], change: [-0.77, -0.38, -0.26, -0.05, 0, 0.11, 0.05]}}, min: 0, max: 10, harmful: low, model: true}
+  - {name: cabin_co2_mmhg,         system: environment,    group: cabin,     source: wokwi,     sim_mean: 2.21, sim_sd: 0.56, person_sd: 0.39, ar: 0.87, min: 0.76,  harmful: high, model: true}
+  - {name: exercise_completion_pct, system: bone_muscle,   group: vitals,    source: app,       sim_mean: 98,   sim_sd: 4.0,  person_sd: 2,    log_from: 100, min: 0, max: 100, harmful: low, model: true}
+  - {name: dose_mgy,               system: radiation,      group: radiation, source: generator, sim_mean: 0.285, sim_sd: 0.0158, person_sd: 0.0255, ar: -0.05, log: true, harmful: high, model: true}
   - {name: lymphocytes_per_ul,     system: immune,         group: labs,      source: wokwi,     sim_mean: 2679, sim_sd: 271,  person_sd: 640,  log: true, interval_days: 7, model: false}
   - {name: il6_pg_ml,              system: immune,         group: labs,      source: wokwi,     sim_mean: 3.7,  sim_sd: 1.11, person_sd: 0.41, log: true, interval_days: 7, model: false}
   - {name: nk_activity_pct,        system: immune,         group: labs,      source: wokwi,     sim_mean: 100,  sim_sd: 14,   person_sd: 0,    log: true, interval_days: 7, model: false}
