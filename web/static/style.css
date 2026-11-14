@@ -245,6 +245,13 @@ table.signals { width: 100%; border-collapse: collapse; font-size: 14px; }
 .result { min-height: 1.5em; font-size: 14px; }
 .result.ok { color: var(--green-ink); } .result.err { color: var(--amber-ink); }
 
+.games-checkin { border-top: 1px solid var(--rule); padding-top: 24px; }
+.games-checkin > .sub, .games-checkin > .fine { max-width: 75ch; margin-top: 8px; }
+.games-checkin .game-history-head { margin-top: 24px; }
+.game-history-head h3 { font-size: 16px; font-weight: 600; }
+.game-history-head button { margin-left: auto; }
+.games-checkin .result { margin-bottom: 8px; }
+
 /* ---------- crew (FR-17) ---------- */
 .crew { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .crew li { padding: 16px 20px; display: grid; gap: 10px; }

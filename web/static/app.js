@@ -462,6 +462,7 @@ const pvt = { running: false, go: false, t0: 0, end: 0, timer: null, trials: [] 
 const touched = { mood: false, ex: false };
 function pvtPress() {
   const btn = $('pvt');
+  if (pvt.running && Date.now() >= pvt.end) { pvtDone(); return; }
   if (!pvt.running) {
     Object.assign(pvt, { running: true, go: false, trials: [], end: Date.now() + PVT_MS });
     $('pvt-big').textContent = 'Wait';
@@ -483,6 +484,7 @@ function pvtPress() {
 function pvtSchedule() {
   clearTimeout(pvt.timer);
   pvt.timer = setTimeout(() => {  // 1-4 s between stimuli, as in PVT-B
+    if (!pvt.running || Date.now() >= pvt.end) { pvtDone(); return; }
     pvt.go = true;
     pvt.t0 = Date.now();
     $('pvt').className = 'pvt go';
@@ -491,6 +493,7 @@ function pvtSchedule() {
   }, 1000 + Math.random() * 3000);
 }
 function pvtStats() {
+  if (pvt.running && Date.now() >= pvt.end) { pvtDone(); return; }
   const n = pvt.trials.length;
   $('pvt-n').textContent = n;
   $('pvt-mean').textContent = n ? `${Math.round(pvt.trials.reduce((a, b) => a + b, 0) / n)} ms` : '—';
@@ -582,6 +585,43 @@ async function replay() {
   render();
 }
 
+// ---------- optional games (raw performance only, not health signals) ----------
+const GAME_NAMES = {
+  lunar_alien_reaction: 'Lunar Alien Reaction', coloring_shapes: 'Coloring Shapes', memory_test: 'Memory Test',
+  reaction_test: 'Reaction Test', speed_click: 'Speed Click', number_hunt: 'Number Hunt',
+};
+function gameLaunchContext() {
+  const query = new URLSearchParams({ crew });
+  if (status && status.ts) query.set('ts', status.ts);
+  $('ci-games-open').href = `/lunar-arcade-hub/?${query}`;
+  $('ci-game-context').textContent = `Optional games for ${String(crew).toUpperCase()}. Mission time is captured when you open the hub.`;
+}
+async function renderGameSessions() {
+  const selected = crew;
+  const message = $('ci-game-status');
+  message.textContent = 'Loading saved sessions…';
+  $('ci-game-table').hidden = true;
+  try {
+    const response = await fetch(`/crew/${encodeURIComponent(selected)}/game-sessions`);
+    if (!response.ok) throw new Error(`core answered ${response.status}`);
+    const data = await response.json();
+    if (selected !== crew) return;
+    const sessions = data.sessions;
+    $('ci-game-rows').innerHTML = sessions.map((s) => {
+      const r = s.result;
+      const time = new Date(s.ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+      return `<tr><td><b>${esc(GAME_NAMES[s.game_id] || s.game_id)}</b><br><span class="fine">${esc(s.difficulty)} · demo game data</span></td>
+        <td>${esc(time)}</td><td class="num">${esc(r.score)}</td><td class="num">${esc(round(r.accuracy))}%</td>
+        <td class="num">${r.avg_reaction_ms == null ? '—' : `${esc(round(r.avg_reaction_ms))} ms`}</td><td class="num">${esc(r.hits)} / ${esc(r.mistakes)}</td></tr>`;
+    }).join('');
+    $('ci-game-table').hidden = !sessions.length;
+    message.textContent = sessions.length ? `${sessions.length} recent saved session(s) for ${String(selected).toUpperCase()}. Response timing means different things in different games; do not compare it with the 90-second test.`
+      : `No saved game sessions for ${String(selected).toUpperCase()} yet. Finish a game in the hub to record one.`;
+  } catch (error) {
+    if (selected === crew) message.textContent = `Could not load game sessions (${error.message}). Choose Refresh sessions to retry.`;
+  }
+}
+
 // ---------- views ----------
 const VIEWS = ['health', 'signals', 'checkin', 'crew', 'reports'];
 const view = () => (VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'health');
@@ -592,6 +632,7 @@ function route() {
   if (v === 'signals') renderSignals();
   if (v === 'crew') renderCrew();
   if (v === 'reports') renderReports();
+  if (v === 'checkin') { gameLaunchContext(); renderGameSessions(); }
 }
 function render() {
   renderMeta();
@@ -600,6 +641,7 @@ function render() {
   renderTodo();
   renderBody();
   if (view() === 'signals') renderSignals();
+  if (view() === 'checkin') gameLaunchContext();
 }
 
 // ---------- events ----------
@@ -622,6 +664,7 @@ document.addEventListener('click', (e) => {
   else if (t.id === 'm-mission') openMission();
   else if (t.id === 'dm-replay') replay();
   else if (t.id === 'pvt') pvtPress();
+  else if (t.id === 'ci-games-refresh') renderGameSessions();
 });
 document.addEventListener('change', (e) => { if (e.target.name === 'preset') setPreset(e.target.value); });
 document.addEventListener('keydown', (e) => {  // Space works anywhere on the check-in view once the test runs
@@ -633,6 +676,7 @@ $('ci-form').addEventListener('submit', sendCheckin);
 setInterval(() => { if (pvt.running) pvtStats(); }, 500);
 window.addEventListener('hashchange', route);
 window.addEventListener('resize', renderTimeline);
+window.addEventListener('focus', () => { if (view() === 'checkin') renderGameSessions(); });
 
 init().catch(() => {
   linkUp = false;
