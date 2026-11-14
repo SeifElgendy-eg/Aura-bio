@@ -813,13 +813,17 @@ function openMission() {
   $('d-mission').showModal();
 }
 async function setPreset(id) {
-  const r = await fetch('/mission', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: id }) });
-  if (r.ok) { const m = await r.json(); mission = { ...mission, ...m }; render(); }
+  const r = await fetch('/mission', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: id }) }).catch(() => null);
+  if (r && r.ok) { const m = await r.json(); mission = { ...mission, ...m }; render(); return; }
+  $('dm-result').className = 'result err';
+  $('dm-result').textContent = refused(r, 'Mission not changed');
 }
+// 401 = the public demo's write protection (core/public_demo.py), not a dead core
+const refused = (r, what) => (r && r.status === 401 ? `${what}: not available on the public demo.` : `${what}; is the core running?`);
 async function replay() {
   const out = $('dm-result');
   const r = await fetch(`/scenario/${$('dm-scenario').value}?crew_id=${encodeURIComponent(crew)}&speed=${$('dm-speed').value}`, { method: 'POST' }).catch(() => null);
-  if (!r || !r.ok) { out.className = 'result err'; out.textContent = 'Scenario not started; is the core running?'; return; }
+  if (!r || !r.ok) { out.className = 'result err'; out.textContent = refused(r, 'Scenario not started'); return; }
   const s = await r.json();
   out.className = 'result ok';
   out.textContent = `Replaying ${s.days} days at ${s.seconds_per_day} s per day.`;
