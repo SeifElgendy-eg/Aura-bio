@@ -17,17 +17,21 @@ def test_console_ui():
 
 def test_local_web_silhouette():
     original = ROOT / 'web/static/images/human-silhouette.svg'
-    assert hashlib.sha256(original.read_bytes()).hexdigest() == 'd0e37b1a7b06c9db1e4c822c3b5189f3d9da4335cd2c543d04ec2e255ed49f9e'
+    assert hashlib.sha256(original.read_bytes()).hexdigest() == '0deff48bf3409b7f3c3c0d42730242f69908d9d80c68d270d1130f7642cda325'
     ns = {'s': 'http://www.w3.org/2000/svg'}
-    source_path = ET.parse(original).getroot().find('.//s:path', ns).attrib['d']
-    body = ET.parse(ROOT / 'web/static/images/body-systems.svg').getroot()
-    clip_path = body.find('.//s:path[@id="human-outline"]', ns)
-    assert clip_path.attrib['d'] == source_path
-    assert clip_path.attrib['transform'] == 'translate(41.500029,630.92312)'
+    source = ET.parse(original).getroot()
+    source_path = source.find('.//s:path', ns)
+    body_file = ROOT / 'web/static/images/body-systems.svg'
+    assert '<g ' in body_file.read_text() and '<ns0:g' not in body_file.read_text()
+    body = ET.parse(body_file).getroot()
+    assert body.attrib['viewBox'] == source.attrib['viewBox'] == '0 0 278.8 984.46'
+    whole_body = body.find('.//s:g[@data-lane="bone"]', ns)
+    assert whole_body.attrib['transform'] == source.find('s:g', ns).attrib['transform']
+    assert whole_body.find('s:path', ns).attrib == source_path.attrib
     parts = [e for e in body.iter() if 'data-lane' in e.attrib]
     assert {e.attrib['data-lane'] for e in parts} == {'neuro', 'immune', 'cardio', 'metab', 'bone', 'habitat'}
     assert all(e.attrib['role'] == 'button' and e.attrib['tabindex'] == '0' for e in parts)
     for e in body.iter():
-        assert e.tag.split('}')[-1] not in {'script', 'image', 'foreignObject'}
+        assert e.tag.split('}')[-1] not in {'script', 'image', 'foreignObject', 'clipPath', 'mask'}
         assert not any(k.startswith('on') for k in e.attrib)
         assert all(v.startswith('#') for k, v in e.attrib.items() if k.endswith('href'))

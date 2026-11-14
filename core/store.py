@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS alert (
 CREATE TABLE IF NOT EXISTS report (
   id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, alert_id INTEGER, body TEXT NOT NULL,
   created_at REAL NOT NULL, release_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS showcase_crew (crew_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS game_session (
   session_id TEXT PRIMARY KEY, crew_id TEXT NOT NULL, game_id TEXT NOT NULL, ts TEXT NOT NULL,
   received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, body TEXT NOT NULL);
@@ -71,6 +72,29 @@ class Store:
         if include_games:
             self.q("DELETE FROM game_session WHERE crew_id = ?", crew_id)
         self.q("DELETE FROM crew_member WHERE id = ?", crew_id)
+
+    def reset_showcase(self, crew_id: str, include_games: bool = False) -> None:
+        """Claim a new demo ID, or reset only a persistently owned demo; never adopt existing data."""
+        if include_games:
+            raise ValueError("showcase resets must preserve games")
+        with self.lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                owned = self.db.execute("SELECT 1 FROM showcase_crew WHERE crew_id = ?", (crew_id,)).fetchone()
+                if not owned:
+                    existing = self.db.execute("SELECT 1 FROM crew_member WHERE id = ?", (crew_id,)).fetchone()
+                    for table in ("reading", "alert", "report", "baseline", "game_session"):
+                        existing = existing or self.db.execute(f"SELECT 1 FROM {table} WHERE crew_id = ? LIMIT 1", (crew_id,)).fetchone()
+                    if existing:
+                        raise ValueError(f"{crew_id} already has non-showcase data; nothing was reset")
+                    self.db.execute("INSERT INTO showcase_crew VALUES (?)", (crew_id,))
+                for table in ("reading", "alert", "report", "baseline"):
+                    self.db.execute(f"DELETE FROM {table} WHERE crew_id = ?", (crew_id,))
+                self.db.execute("DELETE FROM crew_member WHERE id = ?", (crew_id,))
+                self.db.execute("COMMIT")
+            except Exception:
+                self.db.execute("ROLLBACK")
+                raise
 
     def add_game_session(self, body: dict, ts: str) -> bool:
         """A UUID is immutable: retry identical data, but never overwrite another session/crew."""

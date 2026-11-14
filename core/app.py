@@ -29,6 +29,7 @@ from contract.schema import Reading, load_limits, load_presets, load_signals, lo
 from core import domain, model_client
 from core.game_sessions import GAME_LABEL, GameSession
 from core.store import Store
+from generator import showcase
 from generator.sim import SCENARIOS, make_profile, simulate, to_readings
 from model.dataset import BASELINE_DAYS
 
@@ -169,10 +170,14 @@ def start_mqtt(loop: asyncio.AbstractEventLoop) -> mqtt.Client:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global store, mqtt_client
+    global store, mqtt_client, replay
     store = Store(os.environ.get("AURA_DB", "core.db"))
     mqtt_client = start_mqtt(asyncio.get_running_loop())
     yield
+    await showcase.runner.shutdown()
+    if replay and not replay.done():
+        replay.cancel()
+        await asyncio.gather(replay, return_exceptions=True)
     mqtt_client.loop_stop()
 
 
@@ -211,6 +216,28 @@ async def run_scenario(name: str, crew_id: str = "cm1", seed: int = 12, speed: f
 
     replay = asyncio.create_task(run())
     return {"scenario": name, "crew_id": crew_id, "days": sc.days, "seed": seed, "seconds_per_day": speed}
+
+
+@app.get("/showcases")
+def get_showcases():
+    """The four safe, simulated story cards and their current replay progress."""
+    return showcase.runner.cards()
+
+
+@app.post("/showcase/{name}")
+async def run_showcase(name: str, speed: float = Query(showcase.DEFAULT_SPEED,
+                                                         ge=showcase.MIN_SPEED,
+                                                         le=showcase.MAX_SPEED)):
+    """Replay one catalog scenario on its fixed reserved demo crew only."""
+    try:
+        return await showcase.runner.start(name, speed, clear=store.reset_showcase, ingest=ingest,
+                                            broadcast=broadcast, mission_name=lambda: mission()["name"])
+    except showcase.ShowcaseUnknown as e:
+        raise HTTPException(422, str(e)) from None
+    except (showcase.ShowcaseRunning, showcase.ShowcaseCollision) as e:
+        raise HTTPException(409, str(e)) from None
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
 
 
 class CheckIn(BaseModel):

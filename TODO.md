@@ -25,3 +25,11 @@ Not verified: physical serial device capture/flashing/calibration, real crew/cli
 - [x] Change corresponding silhouette-region colors using the backend system bands; unknown and overdue data must not appear green.
 - [x] Increase text size and put longer explanatory text inside Show more sections, without hiding urgent alarms, crew actions, offline/save messages or research/nonmedical labels.
 - [x] Tailor the UI/UX for an astronaut on a space mission: readable controls, mission day/time and ground delay, calm non-flashing urgency, immediate onboard actions and honest simulated-data framing; preserve timeline, check-in and offline games.
+
+## Complete silhouette, drift contributions and showcase scenarios
+
+- [x] Find and use a different web-sourced full-body silhouette without cropping or removing anatomy. Preserve the whole vector beneath symbolic clickable/status-colored system overlays, source attribution and offline-local serving.
+- [x] Create a pie chart representing each model parameter's share of the backend drift/anomaly detector terms. Show all returned parameters with named percentages, detector/score context, missing/model-unavailable and zero-contribution states; do not invent weights or imply medical causation.
+- [x] Create readily accessible showcase scenarios with story/expected functionality and repeatable simulated replay, using dedicated demo crew IDs rather than replacing existing crew readings or saved games. Keep existing scenario definitions, thresholds, model and mission behavior intact.
+
+Follow-up verified: 160 tests passed, 1 existing skip; all four actual 40-day demo replays completed. Original CM2 status/timeline/424 readings/7 games unchanged. See `docs/drift-and-showcase-verification.md`.

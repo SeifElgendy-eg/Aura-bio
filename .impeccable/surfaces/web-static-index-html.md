@@ -28,3 +28,5 @@ FORM: Flight Plan Timeline, grounded candidate 1 of 7 (impeccable's pick, chosen
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
 Refinement authority: `DESIGN.md`. Source asset: `web/static/images/SOURCES.md`. No change to health thresholds, mission responses, check-in timing or game behavior.
+
+Follow-up: complete CC0 Openclipart silhouette under uncut overlays; full-width backend contribution pie/list before the existing timeline; a safe Showcase view with four reserved-crew replays and visible return/context. Model contributions explain detector terms, not physiological causation. All incumbent status/action/theme/offline rules remain binding.

@@ -22,6 +22,7 @@
       <a href="#checkin" data-view="checkin">Check-in</a>
       <a href="#crew" data-view="crew">Crew overview</a>
       <a href="#reports" data-view="reports">Ground reports</a>
+      <a href="#showcase" data-view="showcase">Showcase</a>
     </nav>
     <div class="meta">
       <span>Crew <b id="m-crew">—</b></span>
@@ -44,6 +45,10 @@
     <p class="status-note">Simulated crew data · not a medical device</p>
   </section>
 
+  <section class="showcase-banner" id="showcase-banner" aria-label="Simulated showcase context" hidden>
+    <p id="showcase-context"></p><a class="button" href="#showcase">Scenario guide</a><button type="button" id="showcase-return" hidden>Return to previous crew</button>
+  </section>
+
   <main id="main" tabindex="-1">
     <!-- My health -->
     <section class="view" id="v-health" aria-label="My health">
@@ -51,7 +56,7 @@
           <h2 id="body-title">Your body systems</h2>
           <p class="sub">Select a region or system to inspect its readings.</p>
           <div class="bodymap-grid">
-            <svg id="figure" viewBox="0 0 240 440" role="group" aria-label="Interactive body systems" aria-describedby="body-note"></svg>
+            <svg id="figure" viewBox="0 0 278.8 984.46" role="group" aria-label="Interactive body systems" aria-describedby="body-note"></svg>
             <ul class="systems" id="systems"></ul>
           </div>
           <p class="fine" id="body-note">Symbolic regions, not an anatomical or diagnostic map. Habitat surrounds the body; metabolic is not measured.</p>
@@ -64,6 +69,17 @@
             <dl class="scores" id="scores"></dl>
           </details>
         </section>
+
+      <section class="card drift-card" aria-labelledby="drift-title">
+        <div class="card-head"><h2 id="drift-title">Drift contributions</h2><p class="sub" id="drift-context">Waiting for model output.</p></div>
+        <p class="fine">Research concept, not validated on crew data. Shares explain the model score, not medical causes. Slice colors identify parameters, not urgency.</p>
+        <p class="empty" id="drift-empty">Waiting for readings and a personal baseline.</p>
+        <div class="drift-grid" id="drift-grid" hidden>
+          <div class="pie-wrap"><canvas id="drift-chart" role="img" aria-label="Parameter contribution pie chart" aria-describedby="drift-context drift-method"></canvas></div>
+          <ul id="drift-legend" class="drift-legend" aria-label="Each parameter's contribution"></ul>
+        </div>
+        <details class="disclosure"><summary>Show more · what these shares mean</summary><p id="drift-method">The backend returns each parameter’s share of the winning detector’s per-signal terms: EWMA for slow harmful drift, or the 2-day model for change. Rounded shares are normalized only for display. A 0% share is retained in the list, not drawn as a slice. Weekly immune labs and unmeasured metabolic signals are not inputs to this model. Missing inputs are baseline-filled by the backend; this does not mean they were measured or are healthy.</p></details>
+      </section>
 
       <section class="card timeline" aria-labelledby="tl-title">
         <div class="card-head">
@@ -174,6 +190,20 @@
       </section>
     </section>
 
+    <section class="view" id="v-showcase" aria-labelledby="showcase-title" hidden>
+      <div class="view-head">
+        <h2 id="showcase-title">Showcase scenarios</h2>
+        <p class="sub">Follow a simulated crew member from baseline to a system event. Each replay uses its own demo crew; your existing crew readings and saved games stay intact.</p>
+      </div>
+      <div class="showcase-toolbar">
+        <label for="showcase-speed">Replay pace</label><select id="showcase-speed"><option value="0.1">Fast walkthrough · 0.1 s/day</option><option value="1" selected>Presentation · 1 s/day</option><option value="3">Inspect each day · 3 s/day</option></select>
+        <button type="button" id="showcase-refresh">Refresh progress</button>
+      </div>
+      <p class="result" id="showcase-result" role="status"></p>
+      <ul class="card showcase-list" id="showcase-list" aria-label="Available scenario walkthroughs"></ul>
+      <p class="fine">All crew values are simulated. These are demonstrations of software behavior, not clinical validation. The current mission preset is retained; use Mission to inspect ground-delay wording and reports.</p>
+    </section>
+
     <!-- Crew overview (FR-17) -->
     <section class="view" id="v-crew" aria-labelledby="crew-title" hidden>
       <div class="view-head">
@@ -219,6 +249,7 @@
     <fieldset class="presets"><legend>Mission preset</legend><div id="dm-presets"></div></fieldset>
     <section class="demo" aria-labelledby="demo-title">
       <h3 id="demo-title">Demo: replay a scenario</h3>
+      <p class="sub"><a href="#showcase" id="dm-showcases">Open safe showcase walkthroughs</a> to preserve this crew. The manual replay below replaces readings.</p>
       <p class="sub">Replaying wipes <span class="crew-id">this crew member</span>'s readings and alerts, then plays the scenario from day 1.</p>
       <div class="demo-row">
         <label>Scenario <select id="dm-scenario">

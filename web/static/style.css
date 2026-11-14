@@ -151,7 +151,8 @@ input[type="range"]:not(.touched) { opacity: .45; }  /* unanswered: the thumb po
 main { flex: 1; padding: 20px 32px 32px; outline: none; }
 .view { display: grid; gap: var(--gap); }
 #v-health { grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); align-items: start; }
-#v-health > .timeline { grid-column: 1 / -1; grid-row: 2; }
+#v-health > .drift-card { grid-column: 1 / -1; grid-row: 2; }
+#v-health > .timeline { grid-column: 1 / -1; grid-row: 3; }
 .view-head { display: grid; gap: 4px; }
 .view-head h2 { font-size: 20px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink); }
 .card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); }
@@ -223,8 +224,9 @@ main { flex: 1; padding: 20px 32px 32px; outline: none; }
 .bodymap { padding: 20px 24px; }
 .bodymap > .sub { margin-top: 4px; }
 .bodymap-grid { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 20px; margin-top: 16px; align-items: center; }
-#figure { width: 100%; height: auto; max-height: 350px; overflow: visible; }
+#figure { width: 100%; height: auto; max-height: 400px; overflow: visible; }
 #figure .part { vector-effect: non-scaling-stroke; fill: var(--panel-2); stroke: var(--rule-strong); stroke-width: 2; cursor: pointer; }
+#figure .part path { fill: inherit !important; stroke: inherit !important; stroke-width: inherit !important; vector-effect: non-scaling-stroke; }
 #figure .part.green { fill: color-mix(in srgb, var(--green) 65%, var(--panel)); stroke: var(--green); }
 #figure .part.amber { fill: color-mix(in srgb, var(--amber) 78%, var(--panel)); stroke: var(--amber); }
 #figure .part.red { fill: color-mix(in srgb, var(--red) 85%, var(--panel)); stroke: var(--red); }
@@ -371,7 +373,8 @@ body.link-lost #figure .part { stroke-dasharray: 5 4; }
 /* ---------- smaller screens ---------- */
 @media (max-width: 1180px) {
   #v-health { grid-template-columns: 1fr; }
-  #v-health > .timeline { grid-row: 3; }
+  #v-health > .drift-card { grid-row: 3; }
+  #v-health > .timeline { grid-row: 4; }
   .side { grid-template-columns: 1fr 1fr; }
   .checkin { grid-template-columns: 1fr; }
 }
@@ -404,3 +407,42 @@ body.link-lost #figure .part { stroke-dasharray: 5 4; }
 #d-alerts .dlg-head { position: sticky; top: -20px; z-index: 1; background: var(--panel); padding: 12px 0; }
 
 .status-note { flex-basis: 100%; font-size: 15px; color: var(--mute); }
+
+/* Backend contributions use categorical slices, never the system urgency palette. */
+.drift-card { padding: 20px 24px; }
+.drift-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; align-items: center; margin-top: 20px; }
+.pie-wrap { position: relative; width: 240px; height: 240px; }
+.drift-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.drift-legend li { border-top: 1px solid var(--rule); min-width: 0; }
+.drift-legend button { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; width: 100%; gap: 10px; border: 0; background: none; text-align: left; padding: 8px 0; }
+.drift-legend button:hover { background: var(--panel-2); }
+.drift-legend i { width: 12px; height: 12px; }
+.drift-legend small { display: block; color: var(--mute); font-size: 14px; font-weight: 400; }
+.showcase-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.showcase-list { padding: 0 24px; }
+.showcase-list > li { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 32px; padding: 24px 0; }
+.showcase-list > li + li { border-top: 1px solid var(--rule); }
+.showcase-story { display: grid; gap: 8px; }
+.showcase-story ol { list-style: decimal; padding-left: 24px; }
+.showcase-story ol li { padding: 4px 0; }
+.showcase-controls { display: grid; gap: 8px; align-content: start; }
+.showcase-controls p { color: var(--mute); text-transform: capitalize; }
+.demo a { color: var(--ink); text-underline-offset: 4px; }
+@media (max-width: 900px) {
+  .drift-grid { grid-template-columns: 200px minmax(0, 1fr); gap: 20px; }
+  .pie-wrap { width: 200px; height: 200px; }
+  .drift-legend { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .drift-card { padding: 16px; }
+  .drift-grid { grid-template-columns: 1fr; }
+  .pie-wrap { margin: auto; }
+  .showcase-list { padding: 0 16px; }
+  .showcase-list > li { grid-template-columns: 1fr; gap: 16px; }
+  .showcase-controls { grid-template-columns: 1fr 1fr; }
+  .showcase-controls p { grid-column: 1 / -1; }
+}
+
+.showcase-banner { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 16px 32px; border-bottom: 1px solid var(--rule); background: var(--panel-2); }
+.showcase-banner p { flex: 1 1 500px; font-size: 16px; }
+@media (max-width: 720px) { .showcase-banner { padding: 16px; } }

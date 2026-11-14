@@ -6,7 +6,7 @@ The console remains a calm operating instrument, served by the existing FastAPI 
 
 Keep status, current crew, mission day, ground delay, connection state and next onboard actions visible. Use static red and amber alarms with written levels, never flashing animation or color alone. Alerts retain their backend reason, cited crew response, medical-team response, mission wording and acknowledgment. Resolved and acknowledged episodes recede; acknowledgment does not mean resolution. Long explanations and citations use native Show more sections. Nonmedical, simulated-data and game-save/offline statements remain visible.
 
-The body selector and onboard-action column lead into a full-width mission timeline. Each of six regions has an equivalent named button and Enter/Space operation. The SVG is clipped to the public-domain Wikimedia human silhouette; habitat/radiation is a frame around the body, not an organ. Region mappings are symbolic selectors. Immune function is body-wide; bone/muscle currently uses exercise completion, not direct bone measurements. Metabolic remains not measured. No region implies anatomical diagnosis.
+The body selector and onboard-action column lead into a full-width mission timeline. Each of six regions has an equivalent named button and Enter/Space operation. The complete CC0 Openclipart silhouette remains intact beneath symbolic system overlays; there is no clipping, masking or cut-away anatomy; habitat/radiation is a frame around the body, not an organ. Region mappings are symbolic selectors. Immune function is body-wide; bone/muscle currently uses exercise completion, not direct bone measurements. Metabolic remains not measured. No region implies anatomical diagnosis.
 
 ## Tokens and type
 
@@ -21,3 +21,9 @@ Critical alert reason and crew response remain outside disclosure. Action eviden
 ## Evidence boundary
 
 Keyboard/browser checks and rendered dark/light review are engineering checks, not astronaut usability, flight certification, clinical validation or full assistive-technology testing. No new threshold, model calibration or measurement is introduced. Asset source and exact original checksum are in `web/static/images/SOURCES.md`.
+
+## Drift contributions and showcase follow-up
+
+The pie chart uses only the backend winning detector’s returned per-parameter terms, normalized for rounded display, with every parameter and zero share retained in a readable named list. Its categorical palette is separate from urgency; model detector/score, simulated provenance and not-causal/not-clinical framing remain visible. Missing, invalid, unavailable and all-zero output never becomes an equal-share pie. Parameter labels and slices can open the existing signal trend; theme changes retain the chart and its exact data.
+
+Showcase is a console view, not a new app. Four existing seed-12 simulations have mission stories and what-to-watch guidance: normal flight, cabin CO₂ creep, sleep debt and sensor loss. Starts select a dedicated reserved demo crew, retain other crew readings/games and the current global mission preset, then show the real backend timeline, alarms and model chart. A visible demo banner links the scenario guide and offers return to the previous crew. Progress is explicitly refreshed, and an already-running scenario cannot be started again. No new calibration values or detector weights are introduced.

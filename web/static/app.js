@@ -46,15 +46,30 @@ let linkUp = false;
 let lastPush = null;
 let lastDayTs = null;
 let selectedLane = null;
+let crewRevision = 0, crewLoadRequest = 0, signalRequest = 0;
 const history = {};        // signal -> trend points, loaded for the signals view
 
 // ---------- loading ----------
 async function loadCrew() {
-  const [st, tl] = await Promise.all([getJson(`/crew/${crew}/status`), getJson(`/crew/${crew}/timeline`)]);
+  const selected = crew, revision = crewRevision, request = ++crewLoadRequest;
+  const [st, tl] = await Promise.all([getJson(`/crew/${selected}/status`), getJson(`/crew/${selected}/timeline`)]);
+  if (crew !== selected || crewRevision !== revision || request !== crewLoadRequest) return false;
+  if (status && (!st || Date.parse(status.ts) > Date.parse(st.ts))) return true;
   status = st;
   timeline = tl;
   lastDayTs = st && st.ts;
   for (const k in history) delete history[k];
+  return true;
+}
+async function selectCrew(id) {
+  crew = id; crewRevision++;
+  status = null; timeline = null; lastDayTs = null; selectedLane = null;
+  for (const k in history) delete history[k];
+  sessionStorageSet('crew', crew);
+  if ($('d-signal').open) $('d-signal').close();
+  location.hash = '#health';
+  render();
+  if (await loadCrew()) render();
 }
 
 async function init() {
@@ -63,6 +78,7 @@ async function init() {
   crew = sessionStorageGet('crew') || ids[0] || 'cm1';
   if (ids.length && !ids.includes(crew)) crew = ids[0];
   await Promise.all([loadCrew(), loadBodyFigure()]);
+  renderShowcases();
   linkUp = true;
   lastPush = new Date();
   connect();
@@ -81,10 +97,14 @@ function connect() {
     lastPush = new Date();
     if (!st) return;
     if (st.crew_id !== crew) { if (view() === 'crew') renderCrew(); return; }
+    if (status && Date.parse(status.ts) > Date.parse(st.ts)) return;
     status = st;
     if (st.ts !== lastDayTs) {  // a new simulated day: lanes and trends move
       lastDayTs = st.ts;
-      timeline = await getJson(`/crew/${crew}/timeline`);
+      const revision = crewRevision;
+      const tl = await getJson(`/crew/${st.crew_id}/timeline`);
+      if (crew !== st.crew_id || crewRevision !== revision || status?.ts !== st.ts) return;
+      timeline = tl;
       for (const k in history) delete history[k];
     }
     render();
@@ -459,17 +479,24 @@ async function acknowledge(id, btn) {
   btn.textContent = 'Acknowledging…';
   const r = await fetch(`/alerts/${id}/ack`, { method: 'POST' }).catch(() => null);
   if (!r || !r.ok) { btn.disabled = false; btn.textContent = 'Not saved, try again'; return; }
-  status = await getJson(`/crew/${crew}/status`);
-  timeline = await getJson(`/crew/${crew}/timeline`);
+  const selected = crew, revision = crewRevision;
+  const [st, tl] = await Promise.all([getJson(`/crew/${selected}/status`), getJson(`/crew/${selected}/timeline`)]);
   btn.disabled = false;
+  if (crew !== selected || crewRevision !== revision) return;
+  status = st; timeline = tl;
   render();
 }
 
 // ---------- signals (FR-10, FR-11) ----------
 async function loadHistory() {
-  if (!status) return;
+  if (!status) return false;
+  const selected = crew, revision = crewRevision, ts = status.ts;
   const sigs = Object.keys(status.signals).filter((s) => s !== 'cumulative_dose_msv' && !history[s]);
-  await Promise.all(sigs.map(async (s) => { history[s] = await getJson(`/crew/${crew}/signal/${s}?days=30`); }));
+  await Promise.all(sigs.map(async (s) => {
+    const h = await getJson(`/crew/${selected}/signal/${s}?days=30`);
+    if (crew === selected && crewRevision === revision && status?.ts === ts) history[s] = h;
+  }));
+  return crew === selected && crewRevision === revision && status?.ts === ts;
 }
 function spark(sig) {
   const h = history[sig];
@@ -483,7 +510,8 @@ function spark(sig) {
 }
 async function renderSignals() {
   if (!status) { $('sig-rows').innerHTML = ''; return; }
-  await loadHistory();
+  const selected = crew, revision = crewRevision;
+  if (!await loadHistory() || crew !== selected || crewRevision !== revision || !status) return;
   const rows = [];
   for (const lane of LANES.filter((l) => l.systems.length)) {
     const sigs = Object.entries(status.signals).filter(([, e]) => lane.systems.includes(e.system));
@@ -522,14 +550,18 @@ function applyChartTheme() {
 }
 document.addEventListener('themechange', applyChartTheme);
 async function openSignal(sig) {
-  const e = status.signals[sig];
-  const h = await getJson(`/crew/${crew}/signal/${sig}?days=400`);
+  const selected = crew, revision = crewRevision, request = ++signalRequest;
+  const e = status?.signals[sig];
+  if (!e) return;
+  const h = await getJson(`/crew/${selected}/signal/${sig}?days=400`);
+  if (crew !== selected || crewRevision !== revision || request !== signalRequest) return;
   $('ds-title').textContent = nameOf(sig);
   $('ds-sub').textContent = `Now ${fmt(sig, e.value)} · ${WORD[e.band]}${e.baseline_mean != null ? ` · your baseline ${fmt(sig, e.baseline_mean)} ± ${fmt(sig, e.baseline_sd)}` : ''}`;
   const lims = limitsOf(sig, e);
   $('ds-cite').textContent = lims.length ? `Limits: ${lims.map((l) => `${l.text} (${l.basis})`).join(' · ')}. Source: ${[...new Set(lims.map((l) => l.citation))].join('; ')}` : 'No limit rule for this signal.';
-  $('d-signal').showModal();
-  if (!window.Chart || !h) return;
+  if (!$('d-signal').open) $('d-signal').showModal();
+  if (chart) { chart.destroy(); chart = null; }
+  if (!window.Chart || !h) { $('ds-sub').textContent += ' · Trend unavailable; close and retry.'; return; }
   const pts = h.points.map((p) => ({ x: dayOf(p.ts), y: p.value }));
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const flat = (v) => pts.map((p) => ({ x: p.x, y: v }));
@@ -551,6 +583,111 @@ async function openSignal(sig) {
         y: { ticks: { color: css('--mute') }, grid: { color: css('--rule') } } },
       plugins: { legend: { labels: { color: css('--mute'), filter: (i) => !i.text.includes('SD') } } } },
   });
+}
+
+// ---------- model contribution pie (backend terms, not medical causation) ----------
+const CONTRIBUTION_COLORS = ['#6486b5', '#ac80b0', '#7e9d74', '#c18e69', '#7b9fa9', '#a095c0', '#b79c6b', '#719c94', '#bd8394', '#949fae'];
+const CONTRIBUTION_ORDER = ['resting_hr_bpm', 'rmssd_ms', 'bp_systolic_mmhg', 'sleep_duration_h', 'sleep_efficiency_pct', 'reaction_lapses_pct', 'mood_score', 'cabin_co2_mmhg', 'exercise_completion_pct', 'dose_mgy'];
+let driftChart = null;
+function contributionData(a) {
+  if (!a?.available) return { reason: a?.reason || 'Model unavailable. Rule-based system bands and alarms still operate.', entries: [] };
+  const entries = Object.entries(a.contributions || {});
+  if (!entries.length) return { reason: 'This model output has no parameter contribution data.', entries: [] };
+  if (entries.some(([, v]) => typeof v !== 'number' || !Number.isFinite(v) || v < 0)) return { reason: 'Invalid contribution data. No pie is shown; refresh or check the model service.', entries: [] };
+  const total = entries.reduce((sum, [, v]) => sum + v, 0);
+  if (!Number.isFinite(total) || total <= 0) return { reason: 'No non-zero model contributions in this window. This is not proof of healthy or complete measurements.', entries: entries.map(([signal]) => ({ signal, share: 0 })) };
+  return { reason: '', entries: entries.map(([signal, value]) => ({ signal, share: value / total })).sort((a, b) => b.share - a.share) };
+}
+const contributionColor = (signal) => CONTRIBUTION_COLORS[Math.max(0, CONTRIBUTION_ORDER.indexOf(signal)) % CONTRIBUTION_COLORS.length];
+function renderDrift() {
+  const a = status?.anomaly;
+  const data = contributionData(a);
+  const detector = a?.detector === 'ewma' ? 'EWMA · slow drift' : a?.detector === '2d' ? '2-day · change detector' : a?.detector || 'not available';
+  $('drift-context').textContent = a?.available ? `${detector} · score ${round(a.score)} · ${a.anomalous ? 'above model threshold' : 'not flagged by model'}` : 'Model output not available';
+  const legend = $('drift-legend');
+  const focused = legend.contains(document.activeElement) ? document.activeElement.dataset.signal : null;
+  legend.innerHTML = data.entries.map((e) => {
+    const reading = status?.signals[e.signal];
+    const note = !reading || reading.value == null ? 'not measured' : `${reading.provenance || 'source unavailable'} · ${WORD[reading.band] || 'unclassified'}`;
+    return `<li><button type="button" data-signal="${esc(e.signal)}"${!reading ? ' disabled' : ''}><i style="background:${contributionColor(e.signal)}" aria-hidden="true"></i><span>${esc(nameOf(e.signal))}<small>${esc(note)}</small></span><b>${(e.share * 100).toFixed(1)}%</b></button></li>`;
+  }).join('');
+  if (focused) legend.querySelector(`[data-signal="${focused}"]`)?.focus({ preventScroll: true });
+  $('drift-empty').hidden = !data.reason;
+  $('drift-empty').textContent = data.reason;
+  $('drift-grid').hidden = !data.entries.length;
+  const canvas = $('drift-chart');
+  canvas.hidden = !!data.reason;
+  if (data.reason) { if (driftChart) { driftChart.destroy(); driftChart = null; } return; }
+  canvas.setAttribute('aria-label', `Model parameter contribution pie: ${data.entries.map((e) => `${nameOf(e.signal)} ${(e.share * 100).toFixed(1)} percent`).join(', ')}`);
+  if (!window.Chart) { canvas.hidden = true; $('drift-empty').hidden = false; $('drift-empty').textContent = 'Chart renderer unavailable; exact shares remain listed.'; return; }
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const chartData = { labels: data.entries.map((e) => nameOf(e.signal)), datasets: [{ data: data.entries.map((e) => e.share * 100), backgroundColor: data.entries.map((e) => contributionColor(e.signal)), borderColor: css('--panel'), borderWidth: 2 }] };
+  if (driftChart) { driftChart.data = chartData; driftChart.update('none'); }
+  else driftChart = new window.Chart(canvas, { type: 'pie', data: chartData, options: {
+    animation: false, maintainAspectRatio: false,
+    onClick: (_, items) => { const entry = contributionData(status?.anomaly).entries[items[0]?.index]; if (entry && status.signals[entry.signal]) openSignal(entry.signal); },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${Number(ctx.raw).toFixed(1)}%` } } }
+  } });
+}
+function themeDrift() { if (driftChart) { driftChart.data.datasets[0].borderColor = getComputedStyle(document.documentElement).getPropertyValue('--panel').trim(); driftChart.update('none'); } }
+document.addEventListener('themechange', themeDrift);
+
+// ---------- dedicated simulated showcase walkthroughs ----------
+let showcases = [];
+let showcaseLoading = false;
+async function renderShowcases() {
+  if (showcaseLoading) return;
+  showcaseLoading = true;
+  try {
+    const response = await fetch('/showcases');
+    if (!response.ok) throw new Error(`core answered ${response.status}`);
+    showcases = await response.json();
+    renderShowcaseList();
+  } catch (error) { $('showcase-result').className = 'result err'; $('showcase-result').textContent = `Could not load showcases (${error.message}). Choose Refresh progress to retry.`; }
+  finally { showcaseLoading = false; }
+}
+function renderShowcaseList() {
+  const box = $('showcase-list');
+  const openDetails = new Set([...box.querySelectorAll('details[open]')].map((d) => d.dataset.showcaseDetail));
+  const focused = box.contains(document.activeElement) ? { key: document.activeElement.dataset.showcase, crew: document.activeElement.dataset.crew } : null;
+  box.innerHTML = showcases.map((s) => `<li><div class="showcase-story"><h3>${esc(s.title)}</h3><p class="sub">${esc(s.story)}</p>
+    <p class="fine">${s.days} mission days · seeded simulation · dedicated crew ${esc(s.crew_id.toUpperCase())}</p>
+    <details class="disclosure" data-showcase-detail="${esc(s.name)}"${openDetails.has(s.name) ? ' open' : ''}><summary>Show more · what to watch</summary><ol>${s.expected_events.map((e) => `<li>${esc(e)}</li>`).join('')}</ol><p class="fine">Signals: ${s.watch_signals.map(nameOf).map(esc).join(', ')}</p></details></div>
+    <div class="showcase-controls"><p>${esc(s.state || 'ready')}${s.completed_days ? ` · ${s.completed_days}/${s.days} days` : ''}</p>
+      <button type="button" data-showcase="${esc(s.name)}"${s.state === 'running' ? ' disabled' : ''}>${s.state === 'completed' ? 'Replay demo' : 'Start demo'}</button>
+      ${s.completed_days ? `<button type="button" data-crew="${esc(s.crew_id)}">View demo crew</button>` : ''}</div></li>`).join('');
+  if (focused) box.querySelector(focused.key ? `[data-showcase="${focused.key}"]` : `[data-crew="${focused.crew}"]`)?.focus({ preventScroll: true });
+  renderShowcaseContext();
+}
+function renderShowcaseContext() {
+  const s = showcases.find((s) => s.crew_id === crew);
+  $('showcase-banner').hidden = !s;
+  if (!s) return;
+  $('showcase-context').textContent = `Simulated showcase · ${s.title}. ${s.name === 'normal' ? 'No injected event.' : `Event begins on mission day ${s.onset_day}.`} Open the scenario guide to review progress and what to watch.`;
+  const previous = sessionStorageGet('showcase-return-crew');
+  $('showcase-return').hidden = !previous || previous === crew;
+  if (previous) { $('showcase-return').dataset.crew = previous; $('showcase-return').textContent = `Return to ${previous.toUpperCase()}`; }
+}
+async function startShowcase(name, button) {
+  const out = $('showcase-result');
+  button.disabled = true;
+  const previous = crew, revision = crewRevision;
+  out.className = 'result'; out.textContent = 'Starting a dedicated simulated crew…';
+  try {
+    const response = await fetch(`/showcase/${encodeURIComponent(name)}?speed=${encodeURIComponent($('showcase-speed').value)}`, { method: 'POST' });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(typeof error.detail === 'string' ? error.detail : `core answered ${response.status}`);
+    }
+    const s = await response.json();
+    if (crew === previous && crewRevision === revision) {
+      if (!showcases.some((s) => s.crew_id === previous)) sessionStorageSet('showcase-return-crew', previous);
+      await selectCrew(s.crew_id);
+    }
+    out.className = 'result ok'; out.textContent = `Started ${s.days} simulated days for ${s.crew_id.toUpperCase()}. ${String(previous).toUpperCase()}'s readings and games were not replaced. Open Crew overview to switch back.`;
+    renderShowcases();
+  } catch (error) { out.className = 'result err'; out.textContent = `Showcase not started (${error.message}). Refresh progress or retry.`; }
+  finally { button.disabled = false; }
 }
 
 // ---------- check-in (FR-12) ----------
@@ -719,7 +856,7 @@ async function renderGameSessions() {
 }
 
 // ---------- views ----------
-const VIEWS = ['health', 'signals', 'checkin', 'crew', 'reports'];
+const VIEWS = ['health', 'signals', 'checkin', 'crew', 'reports', 'showcase'];
 const view = () => (VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'health');
 function route() {
   const v = view();
@@ -728,15 +865,18 @@ function route() {
   if (v === 'signals') renderSignals();
   if (v === 'crew') renderCrew();
   if (v === 'reports') renderReports();
+  if (v === 'showcase') renderShowcases();
   if (v === 'checkin') { gameLaunchContext(); renderGameSessions(); }
 }
 function render() {
   renderMeta();
+  renderShowcaseContext();
   renderLive();
   renderTimeline();
   renderTodo();
   renderBody();
   renderAlarms();
+  renderDrift();
   if ($('d-alerts').open) openAlerts();
   if (view() === 'signals') renderSignals();
   if (view() === 'checkin') gameLaunchContext();
@@ -750,6 +890,7 @@ document.addEventListener('click', (e) => {
   else if (t.dataset.alert) openAlerts(t.dataset.alert);
   else if (t.dataset.ack) acknowledge(t.dataset.ack, t);
   else if (t.dataset.signal) openSignal(t.dataset.signal);
+  else if (t.dataset.showcase) startShowcase(t.dataset.showcase, t);
   else if (t.dataset.lane) openSystem(t.dataset.lane);
   else if (t.id === 'system-close') {
     const lane = selectedLane; selectedLane = null; renderBody();
@@ -760,15 +901,15 @@ document.addEventListener('click', (e) => {
     document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', b === t));
     renderTimeline();
   } else if (t.dataset.crew) {
-    crew = t.dataset.crew;
-    sessionStorageSet('crew', crew);
-    loadCrew().then(() => { location.hash = '#health'; render(); });
+    selectCrew(t.dataset.crew);
   } else if (t.id === 's-review' || t.id === 'alarms-open') openAlerts();
   else if (t.id === 'm-mission') openMission();
   else if (t.id === 'dm-replay') replay();
   else if (t.id === 'pvt') pvtPress();
   else if (t.id === 'ci-games-refresh') renderGameSessions();
+  else if (t.id === 'showcase-refresh') renderShowcases();
 });
+$('dm-showcases').addEventListener('click', () => $('d-mission').close());
 document.addEventListener('change', (e) => { if (e.target.name === 'preset') setPreset(e.target.value); });
 document.addEventListener('keydown', (e) => {
   const region = e.target.closest('#figure [data-lane]');

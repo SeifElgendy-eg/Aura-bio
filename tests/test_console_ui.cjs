@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync('web/static/app.js', 'utf8');
 const elements = {};
 const element = (id) => elements[id] ||= { children: [], innerHTML: '', hidden: false, textContent: '',
-  querySelectorAll: () => [], focus: () => {}, setAttribute: () => {} };
+  querySelectorAll: () => [], contains: () => false, focus: () => {}, setAttribute: () => {} };
 const parts = ['neuro', 'cardio', 'immune', 'bone', 'habitat', 'metab'].map((id) => ({ dataset: { lane: id }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }));
 const buttons = parts.map((p) => ({ dataset: p.dataset, word: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, querySelector() { return this.word; } }));
 const context = { document: { getElementById: element, addEventListener: () => {}, activeElement: {},
@@ -13,6 +13,9 @@ const context = { document: { getElementById: element, addEventListener: () => {
   location: { hash: '' }, fetch: () => { throw new Error('network not expected'); }, console };
 vm.runInNewContext(source.slice(0, source.indexOf('// ---------- events ----------')) + `
 globalThis.UI = { LANES, laneBand, renderBody, renderTodo, renderAlarms, alertHtml, headline, openAlerts, renderSignals,
+ contributionData, renderDrift, loadCrew, loadHistory, openSignal,
+ current() { return {crew,status,timeline}; },
+ changeCrew(id, st = null) { crew=id; crewRevision++; status=st; timeline=null; for(const k in history) delete history[k]; },
  set(st, lane = null) { for (const sig of Object.keys(st.signals)) history[sig] = {points:[]}; status = st; selectedLane = lane; crew = 'cm2'; timeline = { first_ts: '2026-11-14T10:00:00Z', baseline_days: 14, days: [{day:35}], episodes: [] }; } };`, context);
 const ui = context.UI;
 const habitat = ui.LANES.find((l) => l.id === 'habitat');
@@ -70,7 +73,29 @@ ui.set(resolved); ui.openAlerts();
 assert.match(element('da-list').innerHTML, /Resolved · to review/);
 assert.match(source, /if \(\$\('d-alerts'\)\.open\) openAlerts\(\)/, 'render refreshes an open alert dialog');
 ui.set(st);
-ui.renderSignals().then(() => assert.match(element('sig-rows').innerHTML, /class="tag">simulated/));
+const signalsCheck = ui.renderSignals().then(() => assert.match(element('sig-rows').innerHTML, /class="tag">simulated/));
+const contributions = { available:true, score:0.2, anomalous:false, detector:'ewma', contributions:{sleep_duration_h:0, reaction_lapses_pct:0.524, mood_score:0.217, cabin_co2_mmhg:0.208} };
+const shares = ui.contributionData(contributions);
+assert.equal(shares.entries.length, 4, 'zero terms remain in the named list');
+assert(Math.abs(shares.entries.reduce((sum,e) => sum+e.share,0) - 1) < 1e-12);
+assert.equal(shares.entries[0].signal, 'reaction_lapses_pct');
+assert.match(ui.contributionData({available:false,reason:'baseline not ready'}).reason, /baseline/);
+assert.match(ui.contributionData({available:true,contributions:{mood_score:0}}).reason, /No non-zero/);
+for (const invalid of [-0.1, NaN, Infinity, '0.1', null]) assert.match(ui.contributionData({available:true,contributions:{mood_score:invalid}}).reason, /Invalid/);
+let chartConfig, destroyed = false;
+context.window = {Chart: function(canvas, config) { chartConfig=config; this.data=config.data; this.update=()=>{}; this.destroy=()=>{destroyed=true;}; }};
+context.getComputedStyle = () => ({getPropertyValue:()=> '#1a1e24'});
+const chartStatus = {...st, anomaly:contributions};
+ui.set(chartStatus); ui.renderDrift();
+assert.equal(chartConfig.type, 'pie');
+assert.equal(chartConfig.data.datasets[0].data.length, 4);
+assert.match(element('drift-legend').innerHTML, /Sleep duration/);
+assert.match(element('drift-legend').innerHTML, /0.0%/);
+assert.match(element('drift-context').textContent, /EWMA.*not flagged by model/);
+assert.equal(chartStatus.signals.sleep_duration_h.band, 'red', 'chart never rewrites backend signal bands');
+ui.set({...st, anomaly:{available:false,reason:'baseline not ready'}}); ui.renderDrift();
+assert.equal(destroyed,true); assert.equal(element('drift-chart').hidden,true);
+assert.match(element('drift-empty').textContent, /baseline/);
 // Both persistence and storage denial must leave an operable preference switch.
 const themeSource = fs.readFileSync('web/static/theme.js','utf8');
 for (const denied of [false, true]) {
@@ -85,3 +110,30 @@ for (const denied of [false, true]) {
   assert.equal(toggle['aria-pressed'], denied ? 'true' : 'false');
 }
 console.log('Console UI checks passed: backend band mapping, unknown/stale, urgency, disclosure, focus-node retention and theme storage.');
+
+(async () => {
+  await signalsCheck;
+  const pending = [];
+  context.fetch = (url) => new Promise((resolve) => pending.push({url,resolve}));
+  const reply = (i, body) => pending[i].resolve({ok:true,json:()=>Promise.resolve(body)});
+  ui.changeCrew('cm2');
+  const oldCrew = ui.loadCrew();
+  ui.changeCrew('demo_normal');
+  const newCrew = ui.loadCrew();
+  reply(2,{crew_id:'demo_normal',signals:{},ts:'2026-12-01T10:00:00Z'}); reply(3,{crew_id:'demo_normal',days:[]});
+  assert.equal(await newCrew,true);
+  reply(0,{crew_id:'cm2',signals:{},ts:'2026-12-01T10:00:00Z'}); reply(1,{crew_id:'cm2',days:[]});
+  assert.equal(await oldCrew,false);
+  assert.equal(ui.current().status.crew_id,'demo_normal');
+  assert.equal(ui.current().timeline.crew_id,'demo_normal');
+  ui.changeCrew('cm2',st);
+  const oldHistory = ui.loadHistory();
+  ui.changeCrew('demo_normal'); reply(4,{points:[{value:99}]});
+  assert.equal(await oldHistory,false);
+  ui.changeCrew('cm2',st);
+  const oldSignal = ui.openSignal('sleep_duration_h');
+  ui.changeCrew('demo_normal'); reply(5,{points:[{value:99}]});
+  await oldSignal;
+  assert.equal(element('ds-title').textContent,'','late old-crew trends cannot label a new-crew dialog');
+  console.log('Delayed response checks passed: status, timeline, history and trend stay scoped to the selected crew.');
+})().catch((error)=>{console.error(error);process.exitCode=1;});

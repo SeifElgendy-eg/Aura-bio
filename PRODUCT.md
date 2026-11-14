@@ -33,7 +33,7 @@ Cross-system pattern detection against a personal baseline: alerts name the sign
 - Data per crew member: 15 signals in 6 systems (cardiovascular, neurocognitive, immune, bone & muscle, environment/radiation; metabolic has no signal yet), each with a band (green, amber, red, stale = overdue, unknown = no rule or no data), personal baseline, limits, provenance; alerts per episode (cross-system pattern or a signal red by a *published* limit) that stay until acknowledged; an anomaly score from a model (research concept); an immune-risk score (placeholder weights); mission preset; trends per signal.
 - Requirements that bind the UI: FR-6 every alert shows reason, citation, response for crew and medical team; FR-7 body map with the status of six systems; FR-8 a late signal is never shown green; FR-10 every signal labelled real / replayed / simulated; FR-11 trend with baseline band and thresholds; FR-12 daily check-in; FR-13 preset switch changes delay, dose rate and alert wording; FR-17 crew overview; NFR-7 works offline; NFR-8 status in 5 seconds; NFR-10 no diagnosis, not-a-medical-device statement visible; NFR-11 all crew data simulated.
 - Terminology: band words are RED / AMBER / WITHIN LIMITS / DATA OVERDUE / NOT MEASURED; thresholds are tagged "published" or "proposed"; "pattern" means a cross-system pattern.
-- Demo-only controls: scenario replay and replay speed (they wipe the crew member's data).
+- Demo-only controls: manual scenario replay replaces the selected crew member’s readings/alerts but retains games. Safe showcase replays instead use dedicated demo crew IDs and preserve existing crew data.
 
 ## Brand Commitments
 
@@ -62,3 +62,7 @@ WCAG 2.2 AA: contrast, keyboard operation of every control (including the reacti
 ## Requested console enhancement · 14 November 2026
 
 The user requested a web-sourced human silhouette with six clickable, backend-colored system regions, visible urgency colors, light mode, larger text and Show more disclosure, tailored for an astronaut on a mission. Keep the calm dark default, add an explicit bright-ambient light theme and retain only the local preference. Use symbolic regions and a habitat frame, not diagnostic anatomy. Urgency, next actions, connection/save state and nonmedical/simulated-data labels must not be hidden. See `DESIGN.md` for the refined display tokens and interaction boundaries.
+
+## Requested follow-up · complete silhouette, contribution pie and showcases
+
+Use a different complete-body web vector without cropping anatomy, a pie/list of backend model contribution shares, and four curated simulated scenario walkthroughs. Keep the source figure whole, show model limitations beside the chart, and isolate showcase writes from existing crew records. No real-crew or clinical claims are added.
