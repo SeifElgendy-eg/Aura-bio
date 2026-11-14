@@ -2,6 +2,15 @@
 
 NASA Space Apps 2026 · astronaut health monitoring. See `CLAUDE.md` for layout and commands.
 
+## Live demo
+
+**https://certification-output-speed-tops.trycloudflare.com**
+
+Public, read-only showcase with four simulated crew members (all data is simulated; the model
+output is a research concept, not validated on crew data). It is served from a team laptop through
+a temporary Cloudflare tunnel, so the link works only while that laptop is online and changes
+whenever the tunnel restarts. If it is down, run the project locally:
+
 ```bash
 uv sync && uv run pytest -q
 uv run python -m model.train
