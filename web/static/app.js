@@ -119,7 +119,7 @@ function toTelemetry(status, overview) {
       if (h.length > 60) h.shift();
     }
     biomarkers[sig] = { id: sig, name: SIGNAL_NAMES[sig] || sig, system_id: systemOfSignal(sig), reading,
-      bounds: boundsOf(sig, e), history: h };
+      bounds: boundsOf(sig, e), history: h, response: e.response };
   }
   const m = status && status.mission;
   return {
@@ -144,7 +144,7 @@ async function loadTelemetry(status) {
 
 async function seedHistory() {
   await Promise.all(ALL_BIOMARKER_ORDER.filter(s => s !== 'cumulative_dose_msv').map(async sig => {
-    const r = await fetch(`/crew/${CREW}/signal/${sig}?days=30`);
+    const r = await fetch(`/crew/${CREW}/signal/${sig}?days=400`);  // whole run: day numbers count from the first reading
     if (r.ok) signalHistory[sig] = (await r.json()).points.map(p => ({ ts: p.ts, time: p.ts.slice(5, 10), value: p.value }));
   }));
 }
@@ -411,6 +411,18 @@ function applyTheme(theme) {
   }
 }
 
+// connection state: the page must never pass frozen values off as live
+let linkUp = false;
+let lastPushAt = null;
+
+function showInitError() {
+  const el = document.getElementById('status-line');
+  if (!el) return;
+  el.className = 'status-line stale';
+  el.innerHTML = `<span class="status-word">OFFLINE</span>
+    <span class="status-why">Cannot reach the core service. Retrying every 5 seconds.</span>`;
+}
+
 async function init() {
   initTheme();
   const grid = document.querySelector('.workbench-grid');
@@ -425,10 +437,14 @@ async function init() {
     await loadTelemetry();
     updateMissionHeader();
     renderHotspots();
+    linkUp = true;
+    lastPushAt = new Date();
     setupWebSocket();
     updateUI();
   } catch (err) {
     console.error('Failed to initialize telemetry bridge', err);
+    showInitError();
+    setTimeout(init, 5000);
   }
 }
 
@@ -436,15 +452,22 @@ function setupWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
+  socket.onopen = () => {
+    if (!linkUp) { linkUp = true; renderStatusLine(); }
+  };
+
   socket.onmessage = async (event) => {
     const status = JSON.parse(event.data);
     if (!status || status.crew_id !== CREW) return;
+    lastPushAt = new Date();
     await loadTelemetry(status);
     updateMissionHeader();
     updateUI();
   };
 
   socket.onclose = () => {
+    linkUp = false;
+    renderStatusLine();
     setTimeout(setupWebSocket, 3000);
   };
 }
@@ -471,7 +494,7 @@ function renderHotspots() {
     pin.id = `pin-${sys.id}`;
     pin.style.left = `${coords.x * 100}%`;
     pin.style.top = `${coords.y * 100}%`;
-    pin.setAttribute('aria-label', `${sys.name} system status`);
+    pin.setAttribute('aria-label', `${sys.name}: status loading`);
     pin.title = `${sys.name} System`;
     pin.innerHTML = `
       <div class="reticle-circle-wrapper" aria-hidden="true">
@@ -514,6 +537,7 @@ function triggerCircleRotation(pinEl) {
 function updateUI() {
   if (!telemetryData) return;
   updateHotspotStatuses();
+  renderStatusLine();
   renderAlerts();
   renderScores();
   updateUrgentHudBanner();
@@ -558,7 +582,11 @@ function updateHotspotStatuses() {
     const pin = document.getElementById(`pin-${sys.id}`);
     if (pin) {
       const isFocused = (currentFocusedOrganId === sys.id);
-      pin.className = `system-pin status-${worst}${isFocused ? ' is-active-focus' : ''}`;
+      const live = liveAlerts(telemetryData.alerts).some(a => a.involved_systems.includes(sys.id));
+      pin.className = `system-pin status-${worst}${live ? ' live' : ''}${isFocused ? ' is-active-focus' : ''}`;
+      // WCAG 1.4.1: the status is said in words, not only by colour
+      pin.setAttribute('aria-label', `${sys.name}: ${{ red: 'red', amber: 'amber', stale: 'data overdue',
+        unknown: 'not measured', green: 'within limits' }[worst]}`);
     }
   });
 }
@@ -621,6 +649,88 @@ function renderScores() {
   el.innerHTML = anomaly + immune;
 }
 
+// --- Status line (NFR-8): worst band as a word, what drives it, what to do next, how current it is ---
+const BAND_RANK = { red: 4, amber: 3, stale: 2, green: 1 };
+const BAND_WORD = { red: 'RED', amber: 'AMBER', stale: 'DATA OVERDUE', green: 'WITHIN LIMITS' };
+
+// mission day of a timestamp, counted from the crew member's first reading
+function dayOf(ts) {
+  const first = Math.min(...Object.values(signalHistory).flat().map(h => Date.parse(h.ts)).filter(Boolean));
+  return Number.isFinite(first) ? Math.floor((Date.parse(ts) - first) / 864e5) + 1 : null;
+}
+
+function renderStatusLine() {
+  const el = document.getElementById('status-line');
+  if (!el || !telemetryData) return;
+  const read = Object.values(telemetryData.biomarkers).filter(b => b.reading);
+  if (!read.length) {
+    el.className = 'status-line unknown';
+    el.innerHTML = `<span class="status-word">NO DATA</span>
+      <span class="status-why">${CREW.toUpperCase()} has no readings yet. Start a scenario from the body map panel.</span>`;
+    return;
+  }
+  const flagged = read.filter(b => BAND_RANK[b.reading.status] >= 2)
+    .sort((x, y) => BAND_RANK[y.reading.status] - BAND_RANK[x.reading.status]);
+  const live = liveAlerts(telemetryData.alerts);
+  const toReview = telemetryData.alerts.filter(a => !a.active && !a.acknowledged).length;
+  const band = [...live.map(a => a.level), ...flagged.map(b => b.reading.status)]
+    .sort((x, y) => BAND_RANK[y] - BAND_RANK[x])[0] || 'green';
+
+  const why = live.length
+    ? `${live[0].pattern_name}${live.length > 1 ? ` and ${live.length - 1} more alert${live.length > 2 ? 's' : ''}` : ''}`
+    : flagged.length
+      ? flagged.slice(0, 3).map(b => `${b.name} ${b.reading.status === 'stale' ? 'overdue'
+        : `${valueText(b.id, b.reading.value)} ${b.bounds.unit}`.trim()}`).join(' · ')
+      : 'Every measured signal is within its limits';
+  const next = live.length ? live[0].response_crew[0] : flagged.length && flagged[0].response ? flagged[0].response.crew : '';
+  const latest = read.map(b => b.reading.ts).filter(Boolean).sort().pop();
+  const link = linkUp ? '' : `Connection lost, retrying · last update ${lastPushAt ? lastPushAt.toLocaleTimeString() : 'none'}`;
+  const when = [link, `Day ${dayOf(latest)}`, toReview && `${toReview} resolved to review`].filter(Boolean).join(' · ');
+
+  el.className = `status-line ${linkUp ? band : 'stale'}`;  // FR-8 spirit: frozen data is never shown as current
+  document.body.classList.toggle('link-lost', !linkUp);
+  el.innerHTML = `
+    <span class="status-word">${BAND_WORD[band]}</span>
+    <span class="status-who">${CREW.toUpperCase()}</span>
+    <span class="status-why">${why}</span>
+    ${next ? `<span class="status-next">Next: ${next}</span>` : ''}
+    <span class="status-when">${when}</span>`;
+}
+
+// --- Modals and keyboard (WCAG 2.1.1, 2.4.3): focus moves in on open, Esc closes, focus returns ---
+let modalReturnFocus = null;
+
+function setModal(id, open) {
+  const m = document.getElementById(id);
+  if (!m) return;
+  if (open) {
+    modalReturnFocus = document.activeElement;
+    m.style.display = 'flex';
+    const heading = m.querySelector('.modal-heading') || m.querySelector('button');
+    if (heading) {
+      heading.setAttribute('tabindex', '-1');
+      heading.focus();
+    }
+  } else {
+    m.style.display = 'none';
+    if (id === 'system-modal') { activeSystemForModal = null; activeSignalForModal = null; }
+    if (modalReturnFocus && modalReturnFocus.focus) modalReturnFocus.focus();
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const open = [...document.querySelectorAll('.modal-scrim')].find(m => m.style.display === 'flex');
+    if (open) setModal(open.id, false);
+    return;
+  }
+  // custom controls built from divs behave like buttons
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"], [role="checkbox"]')) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+
 // alerts that should still sound and fill the banner: active and not yet acknowledged
 const liveAlerts = alerts => (alerts || []).filter(a => a.active && !a.acknowledged);
 
@@ -678,8 +788,10 @@ function renderAlerts() {
   badge.className = live ? 'panel-count-badge badge-urgent-pulse' : 'panel-count-badge';
   badge.style.color = live ? '' : 'var(--color-text-dim)';
 
-  list.innerHTML = alerts.map((alert) => `
-    <div class="pattern-card ${alert.level === 'red' ? 'level-red' : 'level-amber'}${alert.active ? '' : ' resolved'}">
+  const current = alerts.filter(a => a.active);
+  const resolved = alerts.filter(a => !a.active);
+  list.innerHTML = current.map((alert) => `
+    <div class="pattern-card ${alert.level === 'red' ? 'level-red' : 'level-amber'}">
       <div class="pattern-card-meta">
         <span class="urgent-indicator-chip ${alert.level}">
           ${alert.level === 'red' ? 'RED' : 'AMBER'} · ${alert.is_pattern ? 'CROSS-SYSTEM PATTERN' : 'SIGNAL ALERT'}
@@ -696,13 +808,37 @@ function renderAlerts() {
       </button>
       ${alert.acknowledged ? '' : `<button class="btn-control alert-ack-btn" onclick="acknowledgeAlert('${alert.id}')">Acknowledge</button>`}
     </div>
-  `).join('');
+  `).join('') + (resolved.length ? `
+    <details class="resolved-group"${current.length ? '' : ' open'}>
+      <summary>${resolved.length} resolved ${resolved.length === 1 ? 'alert' : 'alerts'} to review and acknowledge</summary>
+      ${resolved.map(a => `
+        <div class="resolved-row">
+          <div class="resolved-text">
+            <div class="resolved-title">${a.pattern_name}</div>
+            <div class="resolved-meta">Was ${a.level} · ${a.is_pattern ? 'cross-system pattern' : 'signal alert'} · from day ${dayOf(a.ts) ?? '?'}</div>
+          </div>
+          <button class="btn-link" onclick="openProtocolModal('${a.id}')">Details</button>
+          <button class="btn-control resolved-ack-btn" onclick="acknowledgeAlert('${a.id}')">Acknowledge</button>
+        </div>`).join('')}
+    </details>` : '');
+}
+
+let protocolAlertId = null;
+
+async function acknowledgeFromModal() {
+  if (protocolAlertId) await acknowledgeAlert(protocolAlertId);
+  setModal('protocol-modal', false);
 }
 
 function openProtocolModal(alertId) {
   if (!telemetryData || !telemetryData.alerts) return;
   const alert = telemetryData.alerts.find(a => a.id === alertId);
   if (!alert) return;
+  protocolAlertId = alert.acknowledged ? null : alert.id;
+  const ackBtn = document.getElementById('protocol-ack-btn');
+  if (ackBtn) ackBtn.textContent = alert.acknowledged ? 'Close' : 'Acknowledge alert';
+  const wording = document.getElementById('protocol-modal-wording');
+  if (wording) wording.textContent = currentMission ? `${currentMission.name}: ${currentMission.alert_wording}` : '';
 
   const modal = document.getElementById('protocol-modal');
   const badge = document.getElementById('protocol-modal-badge');
@@ -735,10 +871,10 @@ function openProtocolModal(alertId) {
 
   if (crewList) {
     crewList.innerHTML = alert.response_crew.map((act, i) => `
-      <div class="protocol-checklist-item" onclick="toggleChecklistItem(this)">
-        <div class="protocol-checkbox" aria-label="Step ${i + 1} checkbox"></div>
+      <div class="protocol-checklist-item" role="checkbox" aria-checked="false" tabindex="0" onclick="toggleChecklistItem(this)">
+        <div class="protocol-checkbox" aria-hidden="true"></div>
         <div class="protocol-step-body">
-          <div class="protocol-step-num">ACTION STEP ${i + 1} OF ${alert.response_crew.length}</div>
+          <div class="protocol-step-num">Step ${i + 1} of ${alert.response_crew.length}</div>
           <div class="protocol-step-instruction">${act}</div>
         </div>
       </div>
@@ -761,11 +897,12 @@ function openProtocolModal(alertId) {
     `;
   }
 
-  modal.style.display = 'flex';
+  setModal('protocol-modal', true);
 }
 
 function toggleChecklistItem(el) {
   el.classList.toggle('is-checked');
+  el.setAttribute('aria-checked', el.classList.contains('is-checked'));
   updateChecklistCounter();
 }
 
@@ -805,7 +942,7 @@ function updateUrgentHudBanner() {
   banner.style.display = 'flex';
 
   const iconEl = document.getElementById('urgent-hud-icon');
-  if (iconEl) iconEl.textContent = isRed ? '🚨' : '⚠️';
+  if (iconEl) iconEl.textContent = '';
 
   const titleEl = document.getElementById('urgent-hud-title');
   if (titleEl) {
@@ -815,7 +952,7 @@ function updateUrgentHudBanner() {
   const subEl = document.getElementById('urgent-hud-sub');
   if (subEl) {
     const sysNames = (topAlert.involved_systems || []).map(s => (systemCircleLabels[s] || s).toUpperCase()).join(' + ');
-    subEl.textContent = `Affecting [${sysNames || 'Multi-System'}] • ${topAlert.medical_reason}`;
+    subEl.textContent = `${sysNames} · ${topAlert.medical_reason}`;
   }
 }
 
@@ -1023,7 +1160,7 @@ function renderTelemetryList() {
     if (!rdg) {
       const sparkline = generateSparklineSvg([], 'stale');
       html += `
-        <div class="biomarker-row stale" style="opacity: 0.7;" onclick="openSystemForBiomarker('${sigId}')">
+        <div class="biomarker-row stale" role="button" tabindex="0" style="opacity: 0.7;" onclick="openSystemForBiomarker('${sigId}')">
           <div class="biomarker-row-main">
             <div class="biomarker-info-title">${bio.name}</div>
             <div class="biomarker-info-bounds" style="color: var(--color-status-stale);">No reading yet</div>
@@ -1043,7 +1180,7 @@ function renderTelemetryList() {
       const sparkline = generateSparklineSvg(bio.history, status);
 
       html += `
-        <div class="biomarker-row status-${status}${isUrgent ? ' urgent-row' : ''}" onclick="openSystemForBiomarker('${sigId}')">
+        <div class="biomarker-row status-${status}${isUrgent ? ' urgent-row' : ''}" role="button" tabindex="0" onclick="openSystemForBiomarker('${sigId}')">
           <div class="biomarker-row-main">
             <div class="biomarker-title-line">
               ${isUrgent ? `<span class="urgent-pip ${status}">●</span>` : ''}
@@ -1203,7 +1340,7 @@ function renderOrganDrawerTelemetry(sys) {
     }
 
     return `
-      <div class="biomarker-row status-${status}${isUrgent ? ' urgent-row' : ''}" style="padding: 10px 12px; cursor: pointer;" onclick="openSystemBiomarkerChart('${bId}')">
+      <div class="biomarker-row status-${status}${isUrgent ? ' urgent-row' : ''}" role="button" tabindex="0" style="padding: 10px 12px; cursor: pointer;" onclick="openSystemBiomarkerChart('${bId}')">
         <div>
           <div class="biomarker-title-line">
             ${isUrgent ? `<span class="urgent-pip ${status}">●</span>` : ''}
@@ -1323,7 +1460,7 @@ function openSystemModal(sys) {
     const valStr = rdg ? rdg.value.toFixed(1) : '--';
 
     return `
-      <div class="biomarker-row" onclick="selectBiomarkerTab('${bId}')">
+      <div class="biomarker-row" role="button" tabindex="0" onclick="selectBiomarkerTab('${bId}')">
         <div>
           <div class="biomarker-info-title">${bio.name}</div>
           <div class="biomarker-info-bounds">${limitsStr}</div>
@@ -1336,7 +1473,7 @@ function openSystemModal(sys) {
   }).join('');
 
   updateModalChart(activeSignalForModal);
-  document.getElementById('system-modal').style.display = 'flex';
+  setModal('system-modal', true);
 }
 
 function selectBiomarkerTab(bId) {
@@ -1555,7 +1692,7 @@ function openCrewModal() {
     `;
   }).join('');
 
-  document.getElementById('crew-modal').style.display = 'flex';
+  setModal('crew-modal', true);
 }
 
 function openMissionModal() {
@@ -1566,7 +1703,7 @@ function openMissionModal() {
   container.innerHTML = Object.values(presets).map((p) => {
     const isCurrent = currentMission && currentMission.name === p.name;
     return `
-      <div class="biomarker-row" style="padding: 14px; min-height: 60px; cursor: pointer; ${isCurrent ? 'border-color: var(--color-signal-primary);' : ''}" onclick="selectMissionPreset('${p.id}')">
+      <div class="biomarker-row" role="button" tabindex="0" style="padding: 14px; min-height: 60px; cursor: pointer; ${isCurrent ? 'border-color: var(--color-signal-primary);' : ''}" onclick="selectMissionPreset('${p.id}')">
         <div>
           <div class="biomarker-info-title" style="font-size: 16.5px; color: ${isCurrent ? 'var(--color-signal-primary)' : 'var(--color-text-bright)'};">${p.name}</div>
           <div class="biomarker-info-bounds" style="font-size: 14px; margin-top: 2px;">Latency: ${p.delay} · Radiative flux: ${p.dose_rate}</div>
@@ -1577,7 +1714,7 @@ function openMissionModal() {
     `;
   }).join('');
 
-  document.getElementById('mission-modal').style.display = 'flex';
+  setModal('mission-modal', true);
 }
 
 async function selectMissionPreset(presetId) {
@@ -1593,7 +1730,7 @@ async function selectMissionPreset(presetId) {
         refreshOrganDrawerEnvironment();
       }
     }
-    document.getElementById('mission-modal').style.display = 'none';
+    setModal('mission-modal', false);
   } catch (err) {
     console.error('Failed to update mission preset', err);
   }
@@ -1604,21 +1741,28 @@ async function triggerScenario(id) {
   try {
     for (const k in signalHistory) delete signalHistory[k];  // the core wipes the crew member's readings too
     const speed = (document.getElementById('scenario-speed') || {}).value || 10;
-    await fetch(`/scenario/${id}?speed=${speed}`, { method: 'POST' });
+    const res = await fetch(`/scenario/${id}?speed=${speed}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`the core answered ${res.status}`);
   } catch (err) {
     console.error('Failed to trigger scenario', err);
+    const el = document.getElementById('status-line');
+    if (el) el.querySelector('.status-why').textContent = `Scenario not started (${err.message}).`;
   }
 }
 
+// only answered fields are sent: an untouched slider must not become a reading in the personal baseline
+const checkinTouched = { mood: false, exercise: false };
+
 function openCheckinModal() {
   playAckCue();
-  document.getElementById('checkin-modal').style.display = 'flex';
+  document.getElementById('checkin-result').textContent = '';
+  setModal('checkin-modal', true);
 }
 
 function closeModal(event, modalId) {
   if (event.target.id === modalId) {
     playAckCue();
-    document.getElementById(modalId).style.display = 'none';
+    setModal(modalId, false);
     if (modalId === 'system-modal') {
       activeSystemForModal = null;
       activeSignalForModal = null;
@@ -1628,26 +1772,46 @@ function closeModal(event, modalId) {
 
 async function submitCheckin(e) {
   e.preventDefault();
-  const mood = parseFloat(document.getElementById('inp-mood').value);
-  const exercise = parseFloat(document.getElementById('inp-exercise').value);
-
-  // the core counts lapses (>= 355 ms, PVT-B) and scores mood; no ts = the crew member's current simulated day.
-  // Hydration has no signal in the contract, so it is not sent.
-  const payload = {
-    crew_id: CREW,
-    mood_answers: [mood],
+  const result = document.getElementById('checkin-result');
+  // the core counts lapses (>= 355 ms, PVT-B) and scores mood; no ts = the crew member's current simulated day
+  const payload = { crew_id: CREW, values: {} };
+  if (checkinTouched.mood) payload.mood_answers = [parseFloat(document.getElementById('inp-mood').value)];
+  if (checkinTouched.exercise) {
+    const minutes = parseFloat(document.getElementById('inp-exercise').value);
     // shortcut: 60 min of exercise = 100% completion, the console's old assumption; use the real prescription when known
-    values: { exercise_completion_pct: Math.min(100, (exercise / 60) * 100) },
-  };
+    payload.values.exercise_completion_pct = Math.min(100, (minutes / 60) * 100);
+  }
   if (pvtState.trials.length) payload.reaction_times_ms = pvtState.trials;
+  if (!payload.mood_answers && !payload.reaction_times_ms && !checkinTouched.exercise) {
+    result.className = 'checkin-result error';
+    result.textContent = 'Nothing to send yet: take the reaction test or answer at least one question.';
+    return;
+  }
 
-  await fetch('/checkin', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  document.getElementById('checkin-modal').style.display = 'none';
+  const button = document.getElementById('checkin-submit');
+  button.disabled = true;
+  button.textContent = 'Sending…';
+  try {
+    const res = await fetch('/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`the core answered ${res.status}`);
+    const body = await res.json();
+    const lapses = payload.reaction_times_ms
+      ? `${pvtState.trials.filter(t => t >= PVT_LAPSE_MS).length} lapses in ${pvtState.trials.length} trials` : 'no reaction test';
+    result.className = 'checkin-result ok';
+    result.textContent = `Sent: ${body.accepted.length} reading${body.accepted.length === 1 ? '' : 's'} (${lapses}).`
+      + (body.rejected.length ? ` Not accepted: ${body.rejected.join(', ')}.` : '');
+    playAckCue();
+  } catch (err) {
+    result.className = 'checkin-result error';
+    result.textContent = `Not sent (${err.message}). Your answers are kept; try again.`;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Send check-in';
+  }
 }
 
 window.addEventListener('resize', renderConnectorLines);

@@ -15,22 +15,22 @@
   <!-- Top Flight Deck Header -->
   <header class="header-bar">
     <div class="brand-block">
-      <span class="brand-title">AURA-BIO</span>
+      <h1 class="brand-title">AURA-BIO</h1>
       <span class="mission-capsule">CREW <strong>CM1</strong></span>
     </div>
 
     <div class="telemetry-metrics">
       <div class="telemetry-item">
-        <span class="telemetry-label">MISSION TRAJECTORY</span>
-        <span class="telemetry-val" id="mission-name">MARS TRANSIT</span>
+        <span class="telemetry-label">MISSION</span>
+        <span class="telemetry-val" id="mission-name">—</span>
       </div>
       <div class="telemetry-item">
         <span class="telemetry-label">ONE-WAY LATENCY</span>
-        <span class="telemetry-val" id="mission-delay">14m 00s</span>
+        <span class="telemetry-val" id="mission-delay">—</span>
       </div>
       <div class="telemetry-item">
         <span class="telemetry-label">DOSE RATE</span>
-        <span class="telemetry-val" id="mission-dose">0.48 mGy/d</span>
+        <span class="telemetry-val" id="mission-dose">—</span>
       </div>
     </div>
 
@@ -55,11 +55,17 @@
     </div>
     <div style="display: flex; align-items: center; gap: 12px;">
       <span class="disclaimer-badge">SIMULATED DATA</span>
-      <button class="disclaimer-close-btn" onclick="toggleDisclaimer()" aria-label="Minimize regulatory disclaimer">✕</button>
+      <button class="disclaimer-close-btn" onclick="toggleDisclaimer()" aria-label="Shorten the not-a-medical-device notice">✕</button>
     </div>
   </aside>
 
   <!-- Tablet View Switcher (Visible on Portrait / Narrow Tablets) -->
+  <!-- NFR-8: one sentence a new viewer can read in 5 seconds -->
+  <section class="status-line unknown" id="status-line" aria-live="polite" aria-atomic="true">
+    <span class="status-word">LOADING</span>
+    <span class="status-why">Connecting to the core service…</span>
+  </section>
+
   <nav class="tablet-nav-bar" id="tablet-nav-bar" aria-label="Tablet View Switcher">
     <button class="tablet-nav-btn active" id="tab-btn-anatomy" onclick="switchTabletView('anatomy')">
       🧑 Astronaut Anatomy
@@ -76,21 +82,21 @@
     <section class="viewport-body" aria-label="Physiological Body Map">
       
       <!-- Urgent Situational Telemetry HUD Banner (Dynamic critical pattern banner) -->
-      <aside class="urgent-hud-banner" id="urgent-hud-banner" style="display: none;" aria-live="assertive">
+      <aside class="urgent-hud-banner" id="urgent-hud-banner" style="display: none;">
         <div class="urgent-hud-content">
           <span class="urgent-hud-pulse" id="urgent-hud-pulse"></span>
           <span class="urgent-hud-icon" id="urgent-hud-icon">🚨</span>
           <div class="urgent-hud-text">
-            <strong id="urgent-hud-title">CRITICAL PATTERN DETECTED</strong>
-            <span id="urgent-hud-sub">Immediate aeromedical response required</span>
+            <strong id="urgent-hud-title"></strong>
+            <span id="urgent-hud-sub"></span>
           </div>
         </div>
         <div class="urgent-hud-actions">
           <button class="btn-control primary urgent-hud-action-btn" id="urgent-hud-protocol-btn" onclick="openUrgentProtocol()">
-            Clinical Protocol →
+            What to do →
           </button>
           <button class="btn-control urgent-hud-action-btn" id="urgent-hud-focus-btn" onclick="focusUrgentSubsystem()">
-            Focus Subsystem 🎯
+            Show on body
           </button>
         </div>
       </aside>
@@ -102,7 +108,7 @@
 
       <!-- Zoomable Silhouette Canvas -->
       <div class="body-silhouette-container" id="map-stage">
-        <img src="/static/images/body_silhouette.png" alt="Astronaut Full Body Silhouette" class="silhouette-media" id="silhouette">
+        <img src="/static/images/body_silhouette.png" alt="" class="silhouette-media" id="silhouette">
         
         <!-- Cross-System Vector Flow Layer (FR-5) -->
         <svg class="pattern-svg-canvas" id="connector-svg" aria-hidden="true"></svg>
@@ -118,12 +124,12 @@
           <button class="btn-control" onclick="closeOrganDrawer()">Close</button>
         </div>
         <!-- Quick Subsystem Carousel inside Organ Drawer -->
-        <div class="organ-drawer-subsystem-bar" id="organ-drawer-subsystem-nav" role="tablist" aria-label="Quick Switch Subsystem"></div>
+        <div class="organ-drawer-subsystem-bar" id="organ-drawer-subsystem-nav" aria-label="Quick Switch Subsystem"></div>
         <div class="organ-drawer-body">
           <div class="organ-image-wrapper">
-            <img src="" alt="Organ Detailed Graphic" class="organ-image-media" id="organ-drawer-img">
+            <img alt="" class="organ-image-media" id="organ-drawer-img">
           </div>
-          <div class="organ-image-caption" id="organ-drawer-caption">High-resolution anatomical visual from medical repository</div>
+          <div class="organ-image-caption" id="organ-drawer-caption">Illustration</div>
           
           <div class="organ-drawer-desc-block">
             <div class="organ-drawer-summary" id="organ-drawer-summary"></div>
@@ -134,7 +140,7 @@
           </div>
 
           <header class="panel-header" style="margin-top: 6px;">
-            <span class="panel-title">ASSOCIATED BIOMARKERS</span>
+            <span class="panel-title" role="heading" aria-level="2">ASSOCIATED BIOMARKERS</span>
           </header>
           <div class="organ-telemetry-cluster" id="organ-drawer-telemetry"></div>
 
@@ -151,7 +157,7 @@
       
       <!-- Multi-System Pattern Warnings -->
       <header class="panel-header">
-        <span class="panel-title">ALERTS</span>
+        <span class="panel-title" role="heading" aria-level="2">ALERTS</span>
         <span class="panel-count-badge" id="alerts-count-badge" style="color: var(--color-status-green);">NOMINAL</span>
       </header>
       <div class="alert-container" id="alerts-list">
@@ -160,7 +166,7 @@
 
       <!-- Model scores (FR-14, FR-15): research concepts, not validated on crew data -->
       <header class="panel-header" style="margin-top: var(--space-sm);">
-        <span class="panel-title">RISK SCORES</span>
+        <span class="panel-title" role="heading" aria-level="2">RISK SCORES</span>
         <span class="panel-count-badge" style="color: var(--color-text-dim);">RESEARCH CONCEPT</span>
       </header>
       <div class="score-grid" id="score-panel">
@@ -169,12 +175,12 @@
 
       <!-- Live Biomarker Feed (Bound to Backend Model) -->
       <header class="panel-header" style="margin-top: var(--space-sm);">
-        <span class="panel-title">PHYSIOLOGICAL BIOMARKERS</span>
+        <span class="panel-title" role="heading" aria-level="2">PHYSIOLOGICAL BIOMARKERS</span>
         <span class="panel-count-badge" id="biomarker-count-badge" style="color: var(--color-signal-primary);">—</span>
       </header>
 
       <!-- Subsystem Quick Filter Bar -->
-      <div class="biomarker-filter-bar" id="biomarker-filter-bar" role="tablist" aria-label="Filter Biomarkers">
+      <div class="biomarker-filter-bar" id="biomarker-filter-bar" aria-label="Filter Biomarkers">
         <button class="filter-pill active" onclick="setBiomarkerFilter('ALL')" data-filter="ALL">ALL</button>
         <button class="filter-pill" onclick="setBiomarkerFilter('BREACHED')" data-filter="BREACHED">⚠️ OUT OF BAND</button>
         <button class="filter-pill" onclick="setBiomarkerFilter('neuro')" data-filter="neuro">NEURO</button>
@@ -205,6 +211,7 @@
               <button class="btn-control scenario-btn" onclick="triggerScenario('sensor_loss')">Sensor Dropout</button>
             </div>
             <button class="btn-control scenario-btn reset" style="width: 100%; justify-content: center; margin-top: 6px;" onclick="triggerScenario('normal')">Replay Normal Days</button>
+            <p class="scenario-note">A replay wipes CM1's readings and alerts, then plays the scenario from day 1.</p>
             <label class="scenario-speed">Replay speed
               <select id="scenario-speed">
                 <option value="10">10 s per day (plan)</option>
@@ -224,7 +231,7 @@
     <div class="modal-surface" role="dialog" aria-modal="true">
       <div class="modal-header-row">
         <h2 class="modal-heading" id="modal-system-title">System Analysis</h2>
-        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="document.getElementById('system-modal').style.display='none'">Close</button>
+        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="setModal('system-modal', false)">Close</button>
       </div>
       <p id="modal-system-desc" style="font-size: 15px; color: var(--color-text-normal); margin-bottom: 14px; line-height: 1.5;"></p>
       
@@ -254,13 +261,13 @@
     <div class="modal-surface" style="width: 580px;" role="dialog" aria-modal="true">
       <div class="modal-header-row">
         <h2 class="modal-heading">Astronaut Daily Check-in</h2>
-        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="document.getElementById('checkin-modal').style.display='none'">Close</button>
+        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="setModal('checkin-modal', false)">Close</button>
       </div>
 
       <label style="font-size: 15.5px; font-weight: 700; color: var(--color-text-bright); margin-bottom: 8px; display: block;">
         Psychomotor Vigilance Task (PVT-90)
       </label>
-      <div class="pvt-interactive-plate" id="pvt-arena" onclick="handlePvtClick()">
+      <div class="pvt-interactive-plate" id="pvt-arena" role="button" tabindex="0" aria-describedby="pvt-sub" onclick="handlePvtClick()">
         <span class="pvt-callout" id="pvt-prompt">Tap to start the 90-second test</span>
         <span id="pvt-sub" style="font-size: 14px; color: var(--color-text-muted); margin-top: 6px;">Tap as soon as the panel lights up. Counts slow responses (lapses).</span>
       </div>
@@ -274,21 +281,22 @@
       <form id="checkin-form" onsubmit="submitCheckin(event)">
         <div style="margin-bottom: 14px;">
           <div style="display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px;">
-            <span style="color: var(--color-text-normal); font-weight: 600;">Subjective Mood & Readiness:</span>
-            <strong id="mood-val" style="color: var(--color-signal-primary); font-size: 16.5px; font-family: var(--font-family-mono);">8.5 / 10</strong>
+            <span id="lbl-mood" style="color: var(--color-text-normal); font-weight: 600;">Mood today (0 = worst, 10 = best):</span>
+            <strong id="mood-val" style="color: var(--color-signal-primary); font-size: 16.5px; font-family: var(--font-family-mono);">Not answered</strong>
           </div>
-          <input type="range" id="inp-mood" min="1" max="10" step="0.5" value="8.5" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="document.getElementById('mood-val').textContent = this.value + ' / 10'">
+          <input type="range" id="inp-mood" aria-labelledby="lbl-mood mood-val" min="1" max="10" step="0.5" value="8.5" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="checkinTouched.mood = true; document.getElementById('mood-val').textContent = this.value + ' / 10'">
         </div>
 
         <div style="margin-bottom: 20px;">
           <div style="display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px;">
-            <span style="color: var(--color-text-normal); font-weight: 600;">Exercise Countermeasures:</span>
-            <strong id="exercise-val" style="color: var(--color-signal-primary); font-size: 16.5px; font-family: var(--font-family-mono);">60 mins</strong>
+            <span id="lbl-exercise" style="color: var(--color-text-normal); font-weight: 600;">Exercise done today:</span>
+            <strong id="exercise-val" style="color: var(--color-signal-primary); font-size: 16.5px; font-family: var(--font-family-mono);">Not answered</strong>
           </div>
-          <input type="range" id="inp-exercise" min="0" max="150" step="15" value="60" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="document.getElementById('exercise-val').textContent = this.value + ' mins'">
+          <input type="range" id="inp-exercise" aria-labelledby="lbl-exercise exercise-val" min="0" max="150" step="15" value="60" style="width: 100%; accent-color: var(--color-signal-primary);" oninput="checkinTouched.exercise = true; document.getElementById('exercise-val').textContent = this.value + ' mins'">
         </div>
 
-        <button type="submit" class="btn-control primary" style="width: 100%; justify-content: center; min-height: 52px; font-size: 16px; font-weight: 700;">Send check-in</button>
+        <p class="checkin-result" id="checkin-result" role="status"></p>
+        <button type="submit" class="btn-control primary" id="checkin-submit" style="width: 100%; justify-content: center; min-height: 52px; font-size: 16px; font-weight: 700;">Send check-in</button>
       </form>
     </div>
   </div>
@@ -298,7 +306,7 @@
     <div class="modal-surface" style="width: 620px;" role="dialog" aria-modal="true">
       <div class="modal-header-row">
         <h2 class="modal-heading">Crew Medical Triage</h2>
-        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="document.getElementById('crew-modal').style.display='none'">Close</button>
+        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="setModal('crew-modal', false)">Close</button>
       </div>
       <div class="biomarker-feed" id="crew-list-container"></div>
     </div>
@@ -309,21 +317,22 @@
     <div class="modal-surface" style="width: 620px;" role="dialog" aria-modal="true">
       <div class="modal-header-row">
         <h2 class="modal-heading">Mission Profile Presets</h2>
-        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="document.getElementById('mission-modal').style.display='none'">Close</button>
+        <button class="btn-control" style="min-height: 44px; padding: 8px 18px; font-size: 14.5px; font-weight: 600;" onclick="setModal('mission-modal', false)">Close</button>
       </div>
       <div class="biomarker-feed" id="presets-list-container"></div>
     </div>
   </div>
 
-  <!-- Modal 5: Clinical Actions & Emergency Protocols (Popped up in middle of screen) -->
+  <!-- Modal 5: why an alert fired and the suggested responses (FR-6) -->
   <div class="modal-scrim" id="protocol-modal" onclick="closeModal(event, 'protocol-modal')">
     <div class="modal-surface protocol-modal-surface" role="dialog" aria-modal="true" aria-labelledby="protocol-modal-title">
       <div class="modal-header-row protocol-header-row">
         <div>
-          <div class="urgent-indicator-chip" id="protocol-modal-badge">🚨 CRITICAL EMERGENCY PROTOCOL</div>
-          <h2 class="modal-heading protocol-modal-heading" id="protocol-modal-title">Pattern Name</h2>
+          <div class="urgent-indicator-chip" id="protocol-modal-badge"></div>
+          <h2 class="modal-heading protocol-modal-heading" id="protocol-modal-title"></h2>
+          <p class="protocol-mission-wording" id="protocol-modal-wording"></p>
         </div>
-        <button class="btn-control protocol-close-btn" onclick="document.getElementById('protocol-modal').style.display='none'">✕ Close</button>
+        <button class="btn-control protocol-close-btn" onclick="setModal('protocol-modal', false)">✕ Close</button>
       </div>
 
       <!-- Systems & Trigger Signals Banner -->
@@ -331,16 +340,15 @@
         <!-- Rendered by JS -->
       </div>
 
-      <!-- Diagnostic Physiological Mechanism -->
       <div class="protocol-reason-card">
-        <div class="protocol-reason-label">DIAGNOSTIC PHYSIOLOGICAL MECHANISM</div>
+        <div class="protocol-reason-label">WHY THIS ALERT</div>
         <div class="protocol-reason-text" id="protocol-modal-reason"></div>
       </div>
 
       <!-- Interactive Crew Action Checklist -->
       <div class="protocol-section">
         <div class="protocol-section-title">
-          <span>🧑‍🚀 IMMEDIATE CREW ACTION CHECKLIST</span>
+          <span>SUGGESTED RESPONSE · CREW</span>
           <span class="protocol-step-counter" id="protocol-crew-counter">0 / 0 Completed</span>
         </div>
         <div class="protocol-checklist-container" id="protocol-crew-checklist">
@@ -348,10 +356,9 @@
         </div>
       </div>
 
-      <!-- Ground Flight Surgeon Protocol -->
       <div class="protocol-section">
         <div class="protocol-section-title medical">
-          <span>📡 FLIGHT SURGEON & TELEMETRY PROTOCOL (HOUSTON CAPCOM)</span>
+          <span>SUGGESTED RESPONSE · MEDICAL TEAM</span>
         </div>
         <div class="protocol-medical-list" id="protocol-medical-list">
           <!-- Rendered by JS -->
@@ -365,8 +372,8 @@
 
       <!-- Bottom Acknowledge Button -->
       <div class="protocol-footer">
-        <button class="btn-control primary protocol-ack-btn" onclick="document.getElementById('protocol-modal').style.display='none'">
-          ✔ Acknowledge Clinical Protocol & Return to Telemetry
+        <button class="btn-control primary protocol-ack-btn" id="protocol-ack-btn" onclick="acknowledgeFromModal()">
+          Acknowledge alert
         </button>
       </div>
     </div>

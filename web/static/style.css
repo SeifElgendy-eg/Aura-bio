@@ -41,7 +41,7 @@
   --color-text-bright: #F8FAFC;
   --color-text-normal: #E2E8F0;
   --color-text-muted: #94A3B8;
-  --color-text-dim: #64748B;
+  --color-text-dim: #8A9AB0;  /* 4.5:1+ on every dark surface (was #64748B, 3.4-4.2:1) */
 
   /* Chart Colors */
   --color-chart-grid: #1C2638;
@@ -87,9 +87,9 @@
   --color-border-interactive: #0284C7;
 
   /* State Tokens in Daylight */
-  --color-status-green: #059669;
+  --color-status-green: #047857;
   --color-status-green-bg: rgba(5, 150, 105, 0.12);
-  --color-status-amber: #D97706;
+  --color-status-amber: #B45309;
   --color-status-amber-bg: rgba(217, 119, 6, 0.12);
   --color-status-red: #DC2626;
   --color-status-red-bg: rgba(220, 38, 38, 0.12);
@@ -97,7 +97,7 @@
   --color-status-stale-bg: rgba(100, 116, 139, 0.12);
 
   /* Primary Signal Accents */
-  --color-signal-primary: #0284C7;
+  --color-signal-primary: #0369A1;
   --color-signal-secondary: #0369A1;
   --color-signal-contrast: #0F172A;
 
@@ -253,7 +253,7 @@ html, body {
 }
 
 .btn-control.primary {
-  background: var(--color-signal-secondary);
+  background: #0369A1;  /* white text 5.9:1 (was #0284C7, 4.1:1) */
   border-color: var(--color-signal-primary);
   color: #fff;
 }
@@ -293,6 +293,8 @@ html, body {
   color: var(--color-status-amber);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  min-width: 32px;
+  min-height: 32px;
   padding: 2px 8px;
   font-size: 13px;
   font-weight: 700;
@@ -445,11 +447,12 @@ html, body {
 .system-pin.status-unknown { --pin-color: var(--color-status-stale); }
 
 /* Urgent Hotspot Pulsing Beacons (Red & Amber Alerts) */
-.system-pin.status-red .reticle-circle-wrapper {
+/* only a system with a live, unacknowledged alert pulses; a plain red band stays still */
+.system-pin.status-red.live .reticle-circle-wrapper {
   animation: urgentPinPulseRed 1.8s ease-in-out infinite;
 }
 
-.system-pin.status-amber .reticle-circle-wrapper {
+.system-pin.status-amber.live .reticle-circle-wrapper {
   animation: urgentPinPulseAmber 2.2s ease-in-out infinite;
 }
 
@@ -1317,7 +1320,7 @@ input[type="range"]::-webkit-slider-thumb {
   height: 28px;
   border-radius: 50%;
   background: var(--color-signal-primary);
-  box-shadow: 0 0 10px var(--color-signal-primary);
+  box-shadow: none;
   cursor: pointer;
 }
 
@@ -1363,7 +1366,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius-lg);
   padding: var(--space-xl) var(--space-lg);
   background: var(--color-bg-subtle);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 30px rgba(56, 189, 248, 0.2);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -1753,6 +1756,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* --- Biomarker Subsystem Quick-Filter Bar --- */
 .biomarker-filter-bar {
+  flex-shrink: 0;  /* it collapsed to 10px inside the sidebar's flex column */
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -2095,7 +2099,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* FR-10: every reading shows where it came from */
 .prov-chip {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2122,3 +2126,171 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 4px;
   padding: 4px 6px;
 }
+
+/* --- Status line (NFR-8): the one sentence above everything --- */
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-normal);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.status-word {
+  font-family: var(--font-family-mono);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+}
+
+.status-line.red .status-word { color: var(--color-status-red); background: var(--color-status-red-bg); }
+.status-line.amber .status-word { color: var(--color-status-amber); background: var(--color-status-amber-bg); }
+.status-line.green .status-word { color: var(--color-status-green); background: var(--color-status-green-bg); }
+.status-line.stale .status-word,
+.status-line.unknown .status-word { color: var(--color-text-muted); background: var(--color-status-stale-bg); }
+.status-line.red { background: linear-gradient(90deg, var(--color-status-red-bg), var(--color-bg-subtle) 60%); }
+.status-line.amber { background: linear-gradient(90deg, var(--color-status-amber-bg), var(--color-bg-subtle) 60%); }
+
+.status-who {
+  font-family: var(--font-family-mono);
+  color: var(--color-text-muted);
+}
+
+.status-why {
+  font-weight: 600;
+  color: var(--color-text-bright);
+}
+
+.status-next {
+  color: var(--color-text-normal);
+}
+
+.status-when {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* --- Resolved alerts: one quiet group, not a stack of alarms --- */
+.resolved-group {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.resolved-group > summary {
+  cursor: pointer;
+  padding: var(--space-sm) var(--space-md);
+  font-weight: 600;
+  color: var(--color-text-normal);
+}
+
+.resolved-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.resolved-text { flex: 1; min-width: 0; }
+.resolved-title { font-weight: 600; color: var(--color-text-normal); }
+.resolved-meta { font-size: 13px; color: var(--color-text-muted); }
+.resolved-ack-btn { min-height: 44px; }
+
+.btn-link {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--color-signal-primary);
+  font: inherit;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0 var(--space-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.protocol-mission-wording {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* connection lost: every status colour drops to grey until the link is back */
+body.link-lost .system-pin,
+body.link-lost .biomarker-value-badge,
+body.link-lost .score-card,
+body.link-lost .pattern-card { filter: grayscale(1); }
+
+.checkin-result { min-height: 1.4em; margin: 0 0 var(--space-xs); font-size: 14px; }
+.checkin-result.ok { color: var(--color-status-green); }
+.checkin-result.error { color: var(--color-status-amber); }
+
+.scenario-note { margin: 8px 0 0; font-size: 13px; color: var(--color-text-muted); }
+
+/* light theme: the red chip text was hard-coded for dark (1.3:1 on light) */
+[data-theme="light"] .urgent-indicator-chip.red { color: #991B1B; }
+
+h1.brand-title { margin: 0; font-size: inherit; font-weight: inherit; }
+
+/* one guard for every animation (WCAG 2.3.3): status is never carried by motion alone */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* keyboard focus is always visible on custom controls */
+[role="button"]:focus-visible,
+[role="checkbox"]:focus-visible,
+.modal-heading:focus-visible {
+  outline: 2px solid var(--color-signal-primary);
+  outline-offset: 2px;
+}
+
+[data-theme="light"] .urgent-indicator-chip.amber { color: #92400E; }
+
+/* quieter: status is carried by a 1px border, tint and words, not thick side stripes or halos */
+.pattern-card, .score-card, .biomarker-row, .protocol-reason-card, .urgent-hud-banner { border-left-width: 1px; }
+.protocol-citation-box { border-left-width: 1px; }
+.pattern-card.level-red, .pattern-card.level-amber,
+.filter-pill.active, .biomarker-value-badge.red, .biomarker-value-badge.amber { box-shadow: none; text-shadow: none; }
+.pattern-card-meta { gap: 8px; flex-wrap: wrap; }
+
+/* phones: nothing may be cut off; the notice keeps its headline */
+@media (max-width: 600px) {
+  .action-cluster { flex-wrap: wrap; }
+  .telemetry-metrics { flex-wrap: wrap; gap: var(--space-sm); }
+  .disclaimer-subtext { display: none; }
+  .body-silhouette-container { height: auto; width: 100%; max-width: 100%; }
+  .status-when { margin-left: 0; }
+  .disclaimer-badge { display: none; }
+  .action-cluster .btn-control { min-height: 44px; padding: 6px 10px; font-size: 13px; }
+  .telemetry-metrics { font-size: 12px; }
+  /* pins shrink with the body; 44px keeps the touch target */
+  .system-pin { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+}
+
+/* red/amber words on their own tint need the light tone to reach 4.5:1 (detector: #ef4444 was 3.9-4.1:1) */
+.status-line.red .status-word, .biomarker-value-badge.red { color: #FCA5A5; }
+.status-line.amber .status-word { color: #FCD34D; }
+[data-theme="light"] .status-line.red .status-word, [data-theme="light"] .biomarker-value-badge.red { color: #991B1B; }
+[data-theme="light"] .status-line.amber .status-word { color: #92400E; }
+.biomarker-value-badge.unknown, .biomarker-value-badge.stale { color: var(--color-text-muted); }
+.biomarker-row.status-red, .biomarker-row.status-amber { border-left-width: 1px; }
+
+/* white text on red needs a deeper red (6.5:1); #EF4444 gave 3.8:1 */
+.tablet-alert-badge, .panel-count-badge.badge-urgent-pulse, .pvt-interactive-plate.active-stimulus { background: #B91C1C; }
+/* no decorative cyan halos: focus and selection are shown by outline and fill */
+.filter-pill.active, .tablet-nav-btn.active, .drawer-subsys-pill.active { box-shadow: none; }
+.pvt-interactive-plate { padding: var(--space-md); }
