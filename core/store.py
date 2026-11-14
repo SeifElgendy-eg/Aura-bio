@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from contract.schema import Reading
@@ -36,6 +37,12 @@ CREATE TABLE IF NOT EXISTS showcase_crew (crew_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS game_session (
   session_id TEXT PRIMARY KEY, crew_id TEXT NOT NULL, game_id TEXT NOT NULL, ts TEXT NOT NULL,
   received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS notification_event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, alert_id INTEGER NOT NULL,
+  name TEXT NOT NULL, level TEXT NOT NULL, ts TEXT NOT NULL, kind TEXT NOT NULL,
+  created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS push_subscription (
+  endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL, subscribed_at REAL NOT NULL);
 """
 
 
@@ -125,20 +132,66 @@ class Store:
         kept up to date while it lasts, set inactive when it stops. Returns (id, live alert) for each new one."""
         new = []
         with self.lock:
-            open_ = {(r[1], r[2]): r[0] for r in self.db.execute(
-                "SELECT id, pattern_id, signal FROM alert WHERE crew_id = ? AND active = 1", (crew_id,))}
+            open_ = {(r[1], r[2]): (r[0], r[3]) for r in self.db.execute(
+                "SELECT id, pattern_id, signal, level FROM alert WHERE crew_id = ? AND active = 1", (crew_id,))}
             for a in live:
                 key, fired = (a["id"], a.get("signal")), json.dumps(a["fired"])
                 if key in open_:
+                    alert_id, old_level = open_.pop(key)
                     self.db.execute("UPDATE alert SET level = ?, signals_fired = ?, last_ts = ? WHERE id = ?",
-                                    (a["level"], fired, ts, open_.pop(key)))
+                                    (a["level"], fired, ts, alert_id))
+                    if old_level == "amber" and a["level"] == "red":
+                        self._notification_event(alert_id, crew_id, a, ts, "escalated")
                 else:
-                    new.append((self.db.execute(
+                    alert_id = self.db.execute(
                         "INSERT INTO alert (crew_id, pattern_id, signal, level, signals_fired, ts, last_ts, active)"
-                        " VALUES (?,?,?,?,?,?,?,1)", (crew_id, *key, a["level"], fired, ts, ts)).lastrowid, a))
+                        " VALUES (?,?,?,?,?,?,?,1)", (crew_id, *key, a["level"], fired, ts, ts)).lastrowid
+                    new.append((alert_id, a))
+                    self._notification_event(alert_id, crew_id, a, ts, "new")
             for alert_id in open_.values():
-                self.db.execute("UPDATE alert SET active = 0 WHERE id = ?", (alert_id,))
+                self.db.execute("UPDATE alert SET active = 0 WHERE id = ?", (alert_id[0],))
         return new
+
+    def _notification_event(self, alert_id: int, crew_id: str, alert: dict, ts: str, kind: str) -> None:
+        self.db.execute(
+            "INSERT INTO notification_event (crew_id, alert_id, name, level, ts, kind, created_at) VALUES (?,?,?,?,?,?,?)",
+            (crew_id, alert_id, alert["name"], alert["level"], ts, kind, time.time()),
+        )
+
+    def notification_cursor(self) -> int:
+        return int(self.q("SELECT COALESCE(MAX(id), 0) FROM notification_event")[0][0])
+
+    def notification_events_after(self, after: int, limit: int = 100) -> list[dict]:
+        return [dict(r) for r in self.q(
+            "SELECT id, crew_id, alert_id, name, level, ts, kind, created_at FROM notification_event "
+            "WHERE id > ? ORDER BY id LIMIT ?", after, limit)]
+
+    def notifications(self, after: int = 0, limit: int = 100) -> tuple[list[dict], int]:
+        latest = self.notification_cursor()
+        rows = self.notification_events_after(max(after, latest - limit), limit)
+        return ([{k: r[k] for k in ("id", "crew_id", "alert_id", "name", "level", "ts", "kind")} for r in rows],
+                latest)
+
+    def add_subscription(self, subscription: dict, subscribed_at: float, maximum: int) -> None:
+        endpoint, keys = subscription["endpoint"], subscription["keys"]
+        with self.lock:
+            exists = self.db.execute("SELECT 1 FROM push_subscription WHERE endpoint = ?", (endpoint,)).fetchone()
+            if not exists and self.db.execute("SELECT COUNT(*) FROM push_subscription").fetchone()[0] >= maximum:
+                raise ValueError("notification subscriber limit reached")
+            self.db.execute("INSERT OR REPLACE INTO push_subscription VALUES (?,?,?,?)",
+                            (endpoint, keys["p256dh"], keys["auth"], subscribed_at))
+
+    def remove_subscription(self, subscription: dict) -> bool:
+        endpoint, keys = subscription["endpoint"], subscription["keys"]
+        with self.lock:
+            cursor = self.db.execute("DELETE FROM push_subscription WHERE endpoint = ? AND p256dh = ? AND auth = ?",
+                                     (endpoint, keys["p256dh"], keys["auth"]))
+            return cursor.rowcount > 0
+
+    def subscriptions_for(self, event_created_at: float) -> list[dict]:
+        return [dict(r) | {"keys": {"p256dh": r["p256dh"], "auth": r["auth"]}}
+                for r in self.q("SELECT endpoint, p256dh, auth FROM push_subscription WHERE subscribed_at <= ?",
+                                 event_created_at)]
 
     def all_alerts(self, crew_id: str) -> list[dict]:
         return [dict(r) for r in self.q("SELECT * FROM alert WHERE crew_id = ? ORDER BY id", crew_id)]

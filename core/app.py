@@ -21,13 +21,15 @@ import numpy as np
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime, BaseModel, Field
 
 from contract.schema import Reading, load_limits, load_presets, load_signals, load_thresholds, model_signals
 from core import domain, model_client
 from core.game_sessions import GAME_LABEL, GameSession
+from core.briefing import build_briefing
+from core import notifications
 from core import public_demo
 from core.store import Store
 from generator import showcase
@@ -40,6 +42,12 @@ log = logging.getLogger("aura.core")
 store: Store
 mqtt_client: mqtt.Client
 sockets: set[WebSocket] = set()
+notification_sockets: set[WebSocket] = set()
+notification_service: notifications.NotificationService
+notification_worker: asyncio.Task | None = None
+_socket_send_lock = asyncio.Lock()
+_notification_dispatch_cursor = 0
+_push_tasks: set[asyncio.Task] = set()
 _status_lock = threading.Lock()  # one status at a time: a stale overlapping one could reopen a closed alert
 
 
@@ -143,12 +151,50 @@ def _crew_status(crew_id: str) -> dict | None:
 
 
 async def broadcast(crew_id: str) -> None:
-    msg = crew_status(crew_id)
-    for ws in list(sockets):
+    global _notification_dispatch_cursor
+    async with _socket_send_lock:
+        msg = crew_status(crew_id)
+        for ws in list(sockets):
+            try:
+                await ws.send_json(msg)
+            except Exception:  # noqa: BLE001  a dead socket must not stop the others
+                sockets.discard(ws)
+        pending = store.notification_events_after(_notification_dispatch_cursor)
+        for event in pending:
+            await _send_notification_frame(event)
+            _notification_dispatch_cursor = event["id"]
+            _queue_push_delivery(event)
+
+
+async def _send_notification_frame(event: dict) -> None:
+    frame = {"type": "notification", "notification":
+             {k: event[k] for k in ("id", "crew_id", "alert_id", "name", "level", "ts", "kind")}}
+
+    for ws in list(notification_sockets):
         try:
-            await ws.send_json(msg)
+            await ws.send_json(frame)
         except Exception:  # noqa: BLE001  a dead socket must not stop the others
             sockets.discard(ws)
+            notification_sockets.discard(ws)
+
+
+def _queue_push_delivery(event: dict) -> None:
+    task = asyncio.create_task(notification_service.deliver(event))
+    _push_tasks.add(task)
+    task.add_done_callback(_push_tasks.discard)
+
+
+async def notification_loop() -> None:
+    # Existing seed/history is deliberately drained at startup, not pushed to new browsers.
+    global _notification_dispatch_cursor
+    _notification_dispatch_cursor = store.notification_cursor()
+    while True:
+        async with _socket_send_lock:
+            for event in store.notification_events_after(_notification_dispatch_cursor):
+                await _send_notification_frame(event)
+                _notification_dispatch_cursor = event["id"]
+                _queue_push_delivery(event)
+        await asyncio.sleep(0.1)
 
 
 def start_mqtt(loop: asyncio.AbstractEventLoop) -> mqtt.Client:
@@ -171,11 +217,18 @@ def start_mqtt(loop: asyncio.AbstractEventLoop) -> mqtt.Client:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global store, mqtt_client, replay
+    global store, mqtt_client, replay, notification_service, notification_worker
     store = Store(os.environ.get("AURA_DB", "core.db"))
+    notification_service = notifications.NotificationService(store, os.environ.get("AURA_DB", "core.db"))
     mqtt_client = start_mqtt(asyncio.get_running_loop())
+    notification_worker = asyncio.create_task(notification_loop())
     yield
     await showcase.runner.shutdown()
+    if notification_worker and not notification_worker.done():
+        notification_worker.cancel()
+        await asyncio.gather(notification_worker, return_exceptions=True)
+    if _push_tasks:
+        await asyncio.gather(*_push_tasks, return_exceptions=True)
     if replay and not replay.done():
         replay.cancel()
         await asyncio.gather(replay, return_exceptions=True)
@@ -194,6 +247,21 @@ replay: asyncio.Task | None = None
 @app.get("/", include_in_schema=False)
 def index():
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/notifications-sw.js", include_in_schema=False)
+def notifications_worker_script():
+    return FileResponse(WEB / "notifications-sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/briefing")
+def briefing_download():
+    statuses = [status for crew_id in store.crews() if (status := crew_status(crew_id))]
+    body = build_briefing(mission(), statuses, ground_reports())
+    return Response(body, media_type="text/plain; charset=utf-8", headers={
+        "Content-Disposition": 'attachment; filename="aura-bio-briefing.txt"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.post("/scenario/{name}")
@@ -269,6 +337,41 @@ class MissionChange(BaseModel):
 def health():
     return {"status": "ok", "mqtt_connected": mqtt_client.is_connected(),
             "readings": store.count(), "rejects": store.count("reject")}
+
+
+@app.get("/notifications/config")
+def notifications_config():
+    return notification_service.config()
+
+
+@app.get("/notifications")
+def get_notifications(after: int = Query(0, ge=0)):
+    events, cursor = store.notifications(after)
+    return {"notifications": events, "cursor": cursor}
+
+
+@app.post("/notifications/subscriptions")
+async def add_notification_subscription(request: Request):
+    try:
+        notification_service.subscribe(await request.json())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(422, "invalid subscription JSON") from None
+    except notifications.SubscriptionError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(429, str(exc)) from None
+    return {"subscribed": True}
+
+
+@app.delete("/notifications/subscriptions")
+async def remove_notification_subscription(request: Request):
+    try:
+        removed = notification_service.unsubscribe(await request.json())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(422, "invalid subscription JSON") from None
+    except notifications.SubscriptionError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return {"removed": removed}
 
 
 @app.get("/crew")
@@ -431,8 +534,12 @@ async def ws_status(ws: WebSocket):
     """Pushes a crew member's full status after every reading stored for them."""
     await ws.accept()
     sockets.add(ws)
+    # Typed event frames are opt-in so existing status-only clients keep their protocol.
+    if ws.query_params.get("notifications") == "1":
+        notification_sockets.add(ws)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
         sockets.discard(ws)
+        notification_sockets.discard(ws)

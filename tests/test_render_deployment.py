@@ -91,7 +91,10 @@ def test_free_demo_private_ports_and_supervisor_cleanup(tmp_path):
     bins = tmp_path / "bin"
     bins.mkdir()
     commands = {
-        "python": "#!/bin/sh\nexit 0\n",
+        # Emulate readiness so core exit cannot kill a stub before its PID is written.
+        "python": (f"#!/bin/sh\nfor attempt in $(seq 1 100); do\n"
+                   f"[ -s '{tmp_path / 'broker.pid'}' ] && [ -s '{tmp_path / 'model.pid'}' ] && exit 0\n"
+                   "sleep 0.01\ndone\nexit 88\n"),
         "mosquitto": f"#!/bin/sh\necho $$ > '{tmp_path / 'broker.pid'}'\nexec sleep 60\n",
         "uvicorn": f"#!/bin/sh\ncase \"$1\" in model.*) echo $$ > '{tmp_path / 'model.pid'}'; exec sleep 60;; *) exit 9;; esac\n",
     }

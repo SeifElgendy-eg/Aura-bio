@@ -14,6 +14,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 PUBLIC_BODY_LIMIT = 64 * 1024
 SHOWCASE_COOLDOWN_SECONDS = 60.0
@@ -31,6 +32,10 @@ def _is_public_showcase(scope: dict[str, Any]) -> bool:
         return False
     parts = scope.get("path", "").split("/")
     return len(parts) == 3 and parts[1] == "showcase" and bool(parts[2])
+
+
+def _is_public_subscription(scope: dict[str, Any]) -> bool:
+    return scope.get("method", "").upper() in {"POST", "DELETE"} and scope.get("path") == "/notifications/subscriptions"
 
 
 def _is_mutation(scope: dict[str, Any]) -> bool:
@@ -133,7 +138,24 @@ class PublicDemoMiddleware:
             return
 
         mutation = _is_mutation(scope)
-        if mutation and not _is_public_showcase(scope) and not _authorized(scope):
+        if mutation and _is_public_subscription(scope):
+            headers = dict(scope.get("headers", ()))
+            try:
+                origin = urlsplit(headers.get(b"origin", b"").decode("latin-1"))
+                host = headers.get(b"host", b"").decode("latin-1").lower()
+                allowed = (bool(host) and origin.scheme in {"http", "https"} and
+                           origin.netloc.lower() == host and not origin.path and
+                           not origin.query and not origin.fragment)
+            except ValueError:
+                allowed = False
+            if not allowed:
+                await _response(403, "same-site subscription origin required", send)
+                return
+            content_type = headers.get(b"content-type", b"").split(b";", 1)[0].strip().lower()
+            if content_type != b"application/json":
+                await _response(415, "subscription body must be application/json", send)
+                return
+        if mutation and not _is_public_showcase(scope) and not _is_public_subscription(scope) and not _authorized(scope):
             await _response(401, "admin bearer token required for this mutation", send,
                             [(b"www-authenticate", b"Bearer")])
             return

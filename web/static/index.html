@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <!-- served locally so the demo runs offline (NFR-7) -->
   <script src="/static/vendor/chart.umd.min.js" defer></script>
+  <script src="/static/notifications.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -31,6 +32,7 @@
       </button>
       <span>Mission day <b class="num" id="m-day">—</b></span>
       <button id="theme-toggle" type="button" aria-pressed="false">Use light mode</button>
+      <button id="notifications-toggle" type="button" aria-pressed="false" aria-describedby="notification-status">Enable crew notifications</button>
     </div>
   </header>
 
@@ -47,6 +49,12 @@
 
   <section class="showcase-banner" id="showcase-banner" aria-label="Simulated showcase context" hidden>
     <p id="showcase-context"></p><a class="button" href="#showcase">Scenario guide</a><button type="button" id="showcase-return" hidden>Return to previous crew</button>
+  </section>
+  <p class="fine" id="notification-status" role="status">Crew alerts appear in this console while connected. Browser push is opt-in on each device.</p>
+  <section class="showcase-banner" id="crew-notification" aria-label="Crew-wide notification" hidden>
+    <p id="crew-notification-text" role="status" aria-live="polite" aria-atomic="true"></p>
+    <button type="button" id="crew-notification-review">Review affected crew</button>
+    <button type="button" id="crew-notification-dismiss">Dismiss notice</button>
   </section>
 
   <main id="main" tabindex="-1">
@@ -221,6 +229,7 @@
       <div class="view-head">
         <h2 id="rep-title">Ground reports</h2>
         <p class="sub" id="rep-sub">Each new alert sends a report to the flight surgeon. It arrives after the mission's one-way delay.</p>
+        <a class="button" href="/briefing" download="aura-bio-briefing.txt">Download crew briefing · under 50 kB</a>
       </div>
       <ul class="reports" id="reports"></ul>
     </section>

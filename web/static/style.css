@@ -127,6 +127,8 @@ input[type="range"]:not(.touched) { opacity: .45; }  /* unanswered: the thumb po
 .meta b { color: var(--ink); font-weight: 600; }
 .meta-btn { background: none; border: 1px solid transparent; color: var(--mute); font-weight: 400; padding: 6px 10px; }
 .meta-btn:hover { border-color: var(--rule-strong); background: var(--panel); }
+#notification-status { margin: 12px 32px; max-width: 75ch; overflow-wrap: anywhere; }
+#crew-notification-text { overflow-wrap: anywhere; }
 
 /* ---------- status band (NFR-8) ---------- */
 .status {

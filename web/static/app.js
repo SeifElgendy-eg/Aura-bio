@@ -75,7 +75,7 @@ async function selectCrew(id) {
 async function init() {
   mission = await getJson('/mission');
   const ids = (await getJson('/crew')) || [];
-  crew = sessionStorageGet('crew') || ids[0] || 'cm1';
+  crew = new URLSearchParams(location.search).get('crew') || sessionStorageGet('crew') || ids[0] || 'cm1';
   if (ids.length && !ids.includes(crew)) crew = ids[0];
   await Promise.all([loadCrew(), loadBodyFigure()]);
   renderShowcases();
@@ -90,11 +90,12 @@ function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch 
 function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch { /* private mode */ } }
 
 function connect() {
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.onopen = () => { linkUp = true; renderLive(); };
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?notifications=1`);
+  ws.onopen = () => { linkUp = true; renderLive(); window.AuraNotifications?.sync(); };
   ws.onmessage = async (e) => {
     const st = JSON.parse(e.data);
     lastPush = new Date();
+    if (st?.type === 'notification') { window.AuraNotifications?.receive(st.notification); return; }
     if (!st) return;
     if (st.crew_id !== crew) { if (view() === 'crew') renderCrew(); return; }
     if (status && Date.parse(status.ts) > Date.parse(st.ts)) return;
@@ -934,6 +935,8 @@ setInterval(() => { if (pvt.running) pvtStats(); }, 500);
 window.addEventListener('hashchange', route);
 window.addEventListener('resize', renderTimeline);
 window.addEventListener('focus', () => { if (view() === 'checkin') renderGameSessions(); });
+window.addEventListener('aura-review-crew', (event) => selectCrew(event.detail));
+window.AuraNotifications?.init();
 
 init().catch(() => {
   linkUp = false;
