@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,25 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_console_ui():
     result = subprocess.run(['node', 'tests/test_console_ui.cjs'], cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_drift_is_requested_not_automatic():
+    class Markup(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.nodes = {}
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if 'id' in attrs:
+                self.nodes[attrs['id']] = (tag, attrs)
+
+    markup = Markup()
+    markup.feed((ROOT / 'web/static/index.html').read_text())
+    tag, button = markup.nodes['drift-toggle']
+    assert tag == 'button' and button['type'] == 'button'
+    assert button['aria-expanded'] == 'false' and button['aria-controls'] == 'drift-content'
+    assert 'hidden' in markup.nodes['drift-content'][1]
 
 
 def test_local_web_silhouette():

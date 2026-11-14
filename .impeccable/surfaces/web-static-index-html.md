@@ -30,3 +30,5 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 Refinement authority: `DESIGN.md`. Source asset: `web/static/images/SOURCES.md`. No change to health thresholds, mission responses, check-in timing or game behavior.
 
 Follow-up: complete CC0 Openclipart silhouette under uncut overlays; full-width backend contribution pie/list before the existing timeline; a safe Showcase view with four reserved-crew replays and visible return/context. Model contributions explain detector terms, not physiological causation. All incumbent status/action/theme/offline rules remain binding.
+
+Requested disclosure refinement: the drift pie/list and explanation start hidden and appear only after Show drift contributions. The same accessible button hides them again; telemetry, theme switching and reload never open them without a request.

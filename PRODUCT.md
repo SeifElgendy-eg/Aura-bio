@@ -66,3 +66,5 @@ The user requested a web-sourced human silhouette with six clickable, backend-co
 ## Requested follow-up · complete silhouette, contribution pie and showcases
 
 Use a different complete-body web vector without cropping anatomy, a pie/list of backend model contribution shares, and four curated simulated scenario walkthroughs. Keep the source figure whole, show model limitations beside the chart, and isolate showcase writes from existing crew records. No real-crew or clinical claims are added.
+
+The contribution chart is optional detail: hide it until the user selects Show drift contributions, provide Hide drift contributions, and reset to hidden on each page load. No backend values, alarms or timeline behavior change.

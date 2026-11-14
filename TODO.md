@@ -33,3 +33,5 @@ Not verified: physical serial device capture/flashing/calibration, real crew/cli
 - [x] Create readily accessible showcase scenarios with story/expected functionality and repeatable simulated replay, using dedicated demo crew IDs rather than replacing existing crew readings or saved games. Keep existing scenario definitions, thresholds, model and mission behavior intact.
 
 Follow-up verified: 160 tests passed, 1 existing skip; all four actual 40-day demo replays completed. Original CM2 status/timeline/424 readings/7 games unchanged. See `docs/drift-and-showcase-verification.md`.
+
+- [x] Show the drift contribution chart only after the user requests it. Start collapsed on each page load, provide an accessible show/hide button, and keep backend shares, trend links, theme support and model-unavailable messaging intact when opened. Three focused Python checks and their Node UI/delayed-response assertions passed; actual Enter/Space opening, click hiding and fresh-document reset verified.

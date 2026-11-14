@@ -71,14 +71,17 @@
         </section>
 
       <section class="card drift-card" aria-labelledby="drift-title">
-        <div class="card-head"><h2 id="drift-title">Drift contributions</h2><p class="sub" id="drift-context">Waiting for model output.</p></div>
-        <p class="fine">Research concept, not validated on crew data. Shares explain the model score, not medical causes. Slice colors identify parameters, not urgency.</p>
-        <p class="empty" id="drift-empty">Waiting for readings and a personal baseline.</p>
-        <div class="drift-grid" id="drift-grid" hidden>
-          <div class="pie-wrap"><canvas id="drift-chart" role="img" aria-label="Parameter contribution pie chart" aria-describedby="drift-context drift-method"></canvas></div>
-          <ul id="drift-legend" class="drift-legend" aria-label="Each parameter's contribution"></ul>
+        <div class="card-head"><h2 id="drift-title">Drift contributions</h2><button id="drift-toggle" type="button" aria-expanded="false" aria-controls="drift-content">Show drift contributions</button></div>
+        <div id="drift-content" hidden>
+          <p class="sub" id="drift-context">Waiting for model output.</p>
+          <p class="fine">Research concept, not validated on crew data. Shares explain the model score, not medical causes. Slice colors identify parameters, not urgency.</p>
+          <p class="empty" id="drift-empty">Waiting for readings and a personal baseline.</p>
+          <div class="drift-grid" id="drift-grid" hidden>
+            <div class="pie-wrap"><canvas id="drift-chart" role="img" aria-label="Parameter contribution pie chart" aria-describedby="drift-context drift-method"></canvas></div>
+            <ul id="drift-legend" class="drift-legend" aria-label="Each parameter's contribution"></ul>
+          </div>
+          <details class="disclosure"><summary>Show more · what these shares mean</summary><p id="drift-method">The backend returns each parameter’s share of the winning detector’s per-signal terms: EWMA for slow harmful drift, or the 2-day model for change. Rounded shares are normalized only for display. A 0% share is retained in the list, not drawn as a slice. Weekly immune labs and unmeasured metabolic signals are not inputs to this model. Missing inputs are baseline-filled by the backend; this does not mean they were measured or are healthy.</p></details>
         </div>
-        <details class="disclosure"><summary>Show more · what these shares mean</summary><p id="drift-method">The backend returns each parameter’s share of the winning detector’s per-signal terms: EWMA for slow harmful drift, or the 2-day model for change. Rounded shares are normalized only for display. A 0% share is retained in the list, not drawn as a slice. Weekly immune labs and unmeasured metabolic signals are not inputs to this model. Missing inputs are baseline-filled by the backend; this does not mean they were measured or are healthy.</p></details>
       </section>
 
       <section class="card timeline" aria-labelledby="tl-title">

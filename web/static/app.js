@@ -599,7 +599,15 @@ function contributionData(a) {
   return { reason: '', entries: entries.map(([signal, value]) => ({ signal, share: value / total })).sort((a, b) => b.share - a.share) };
 }
 const contributionColor = (signal) => CONTRIBUTION_COLORS[Math.max(0, CONTRIBUTION_ORDER.indexOf(signal)) % CONTRIBUTION_COLORS.length];
+function toggleDrift() {
+  const content = $('drift-content'), button = $('drift-toggle');
+  content.hidden = !content.hidden;
+  button.setAttribute('aria-expanded', String(!content.hidden));
+  button.textContent = content.hidden ? 'Show drift contributions' : 'Hide drift contributions';
+  renderDrift();
+}
 function renderDrift() {
+  if ($('drift-content').hidden) { if (driftChart) { driftChart.destroy(); driftChart = null; } return; }
   const a = status?.anomaly;
   const data = contributionData(a);
   const detector = a?.detector === 'ewma' ? 'EWMA · slow drift' : a?.detector === '2d' ? '2-day · change detector' : a?.detector || 'not available';
@@ -903,6 +911,7 @@ document.addEventListener('click', (e) => {
   } else if (t.dataset.crew) {
     selectCrew(t.dataset.crew);
   } else if (t.id === 's-review' || t.id === 'alarms-open') openAlerts();
+  else if (t.id === 'drift-toggle') toggleDrift();
   else if (t.id === 'm-mission') openMission();
   else if (t.id === 'dm-replay') replay();
   else if (t.id === 'pvt') pvtPress();
