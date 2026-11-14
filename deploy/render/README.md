@@ -1,5 +1,13 @@
 # Render public simulated demo
 
+## No-card free demo
+
+`FreeDemo.Dockerfile` runs the same core, verified model and MQTT broker inside one free web-service container. Only the core binds publicly; model and broker listen on loopback. Use the `free` plan, Frankfurt region, `integration/full-stack` branch and this Dockerfile. No admin token is configured, so protected writes fail closed; public safe showcases still work. This is a showcase, not durable mission hosting.
+
+Render sleeps free services after 15 idle minutes and may take about a minute to wake. SQLite and demo changes are lost on restart, redeploy or sleep; the same four simulated crews are re-seeded. Free quotas can suspend the service/builds. No payment method or paid upgrade is needed; do not add automatic keep-alive traffic or upgrade services. See [Render free-service limits](https://render.com/docs/free).
+
+## Persistent paid deployment
+
 `render.yaml` keeps the existing three-service topology: public HTTPS core, private MQTT broker and private CPU model. Each service uses the 512 MB plan. The core and broker each have a 1 GB persistent disk. The base compute/storage cost is $21.50/month at the pricing checked on 14 November 2026; workspace fees and usage overages are separate. Frankfurt is the shared region. Auto-deploy and Blueprint auto-sync are disabled for deliberate releases; a Git push alone does not update the deployed app.
 
 The core initializes an empty database from the four existing seed-12 safe showcases. All readings are simulated; no original sandbox crew data or saved games are uploaded. Seeding preserves existing crews/readings on subsequent starts and rolls back generated readings if initialization fails. The checked-in small model artifacts preserve verified model version `8d30c5cab8db`; Render does not silently retrain a different model.

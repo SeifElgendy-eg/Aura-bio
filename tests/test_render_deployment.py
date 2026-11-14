@@ -1,4 +1,6 @@
 import hashlib
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -78,3 +80,30 @@ def test_seed_failure_rolls_back(tmp_path, monkeypatch):
     assert store.count() == 0
     assert store.crews() == []
     store.db.close()
+
+
+def test_free_demo_private_ports_and_supervisor_cleanup(tmp_path):
+    dockerfile = (ROOT / "deploy/render/FreeDemo.Dockerfile").read_text()
+    assert "AURA_PUBLIC_DEMO=1" in dockerfile
+    assert "AURA_MODEL_URL=http://127.0.0.1:8001" in dockerfile
+    assert "AURA_ADMIN_TOKEN=" not in dockerfile
+    assert "listener 1883 127.0.0.1" in (ROOT / "deploy/render/free-mosquitto.conf").read_text()
+    bins = tmp_path / "bin"
+    bins.mkdir()
+    commands = {
+        "python": "#!/bin/sh\nexit 0\n",
+        "mosquitto": f"#!/bin/sh\necho $$ > '{tmp_path / 'broker.pid'}'\nexec sleep 60\n",
+        "uvicorn": f"#!/bin/sh\ncase \"$1\" in model.*) echo $$ > '{tmp_path / 'model.pid'}'; exec sleep 60;; *) exit 9;; esac\n",
+    }
+    for name, text in commands.items():
+        path = bins / name
+        path.write_text(text)
+        path.chmod(0o755)
+    result = subprocess.run(["sh", str(ROOT / "deploy/render/start_free_demo.sh")],
+                            cwd=tmp_path, env=os.environ | {"PATH": f"{bins}:/usr/bin:/bin"},
+                            capture_output=True, timeout=10)
+    assert result.returncode == 9
+    for name in ("model", "broker"):
+        pid = int((tmp_path / f"{name}.pid").read_text())
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
