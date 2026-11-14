@@ -23,7 +23,7 @@ Read first: `CLAUDE.md`, `docs/model-decisions.md` (how and why the model got he
 | `model/dataset.py`     | Per-astronaut z-scores against their first 14 days; windows; `confirmed()` (alarm needs 2 days in a row) |
 | `model/autoencoder.py` | Dense autoencoder (flatten → 32 → 6 → 32) on 2-day windows: sudden change |
 | `model/ewma.py`        | One-sided EWMA drift score (λ 0.2): slow drift; only the `harmful` direction in `signals.yaml` counts |
-| `model/train.py`       | Trains on normal days only; alarm lines = 99.5th percentile over 300 validation astronauts; `evaluate()` runs 200 astronauts per scenario over `--seeds` training seeds |
+| `model/train.py`       | Trains on normal days only; alarm lines = 99.5th percentile over 1,000 validation astronauts; `evaluate()` runs 200 astronauts per scenario over `--seeds` training seeds |
 | `model/service.py`     | FastAPI `/score`, `/health`. Score > 1 = anomalous. Returns the top detector, per-signal contributions and signed drift |
 | `generator/sim.py`     | The simulator and the 7 scenarios. Your training data comes from here                                                        |
 
@@ -34,14 +34,14 @@ Read first: `CLAUDE.md`, `docs/model-decisions.md` (how and why the model got he
 | Normal (false alarms) | under 0.1% of days, 4% of astronauts over 19 days | —              |
 | Sleep debt            | 100%                                         | 5                   |
 | Deconditioning        | 96%                                          | 4                   |
-| Solar particle event  | 100%                                         | 1 (confirmation)    |
-| CO₂ creep             | 25% (rules catch it)                         | —                   |
+| Solar particle event  | 99%                                          | 1 (confirmation)    |
+| CO₂ creep             | 23% (rules catch it)                         | —                   |
 | Immune                | 5% (= normal)                                | —                   |
 | Sensor loss           | 4% (= normal)                                | —                   |
 
 Also evaluated every run: 6 research-doc patterns and a 60-scenario single-signal sweep (`model/eval_scenarios.py`,
-plan 6.3). Weak spots: one signal drifting alone (13% at 1 spread, 56% at 3: the rules' job; see docs/model-decisions.md section 14), the
-sleep + HRV pattern (48%), anything CO₂-only. Retraining moves the autoencoder by several points; compare
+plan 6.3). Weak spots: one signal drifting alone (24% at 1 spread vs 10% healthy over the same 39 days, 79% at 3: the rules' job;
+see docs/model-decisions.md section 14), the sleep + HRV pattern (47%), anything CO₂-only. Retraining moves the autoencoder by several points; compare
 changes over seeds (`--seeds`, default 3).
 
 ## What you must know about the data
@@ -89,7 +89,7 @@ changes over seeds (`--seeds`, default 3).
 
 Done: 2-day autoencoder (sudden change, alarm confirmed on 2 days in a row) + one-sided EWMA drift score
 (`model/ewma.py`, slow drift, λ 0.2, only the `harmful` direction in `signals.yaml` counts); 7- and 14-day
-autoencoders removed; alarm lines at 99.5% of 300 validation astronauts. Reasoning and numbers: plan 6.3.
+autoencoders removed; alarm lines at 99.5% of 1,000 validation astronauts. Reasoning and numbers: plan 6.3.
 `/score` returns `score`, `anomalous`, `detector` (`2d` or `ewma`), `scores`, `contributions`, `drift`
 (signed, per signal) and needs 3–14 days. Tests: `tests/test_ewma.py`, `tests/test_service.py`.
 
@@ -104,4 +104,8 @@ autoencoders removed; alarm lines at 99.5% of 300 validation astronauts. Reasoni
 | Slower EWMA (λ 0.1) | Tested, rejected: gains within noise, deconditioning flagged a day later |
 | Untracked scenarios | Done: per-signal sweep + research-doc patterns run in every `model.train` |
 | Score only the signals present and report missing ones, instead of filling 0 | Waits for the core service and its handling of missing data |
-| Core service scaling | The core service must compute baselines exactly as `model/dataset.py` `baseline_stats` / `normalise` (blend k = 6, cap ±8) |
+| Core service scaling | Written on local branch `core-scaling` (backend + model): core baseline and model window now use `model/dataset.py`'s blend and cap; a test checks live z-scores equal training's. Awaiting backend owner's review |
+| Bad input at `/score` | Done: NaN/inf rejected with a clean 422 (the default error reply crashed with a 500); values clipped at ±8 like training |
+| Model version | Done: `model_version` (hash of the trained files) in `/health` and every `/score` reply |
+| Alarm-line stability | 1,000 validation astronauts (was 300): detection ranges tightened; the EWMA line's number still differs by seed because the per-signal scale is fitted per seed, which doesn't change detection |
+| Slow sweep under-measured | Done: sweep runs 60 days with a 60-day healthy reference |

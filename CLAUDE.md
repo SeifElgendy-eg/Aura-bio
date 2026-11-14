@@ -17,7 +17,7 @@ Flutter app are other workstreams and may land here later as `firmware/`, `core/
 - `model/` — two detectors (plan 4.3): `autoencoder.py` (dense AE on 2-day windows: sudden change; alarm confirmed on 2 days in a
   row) and `ewma.py` (one-sided EWMA drift score: slow drift; harmful direction per signal = `harmful` in `signals.yaml`).
   `dataset.py` (baseline scaling: spread blended with population, k = 6, deviations capped ±8; the core service must match it;
-  windows, `confirmed()`), `eval_scenarios.py` (per-signal sweep + research-doc patterns, evaluation only), `train.py` (normal days only, alarm lines = p99.5 of 300
+  windows, `confirmed()`), `eval_scenarios.py` (per-signal sweep + research-doc patterns, evaluation only), `train.py` (normal days only, alarm lines = p99.5 of 1,000
   validation astronauts; saves `artifacts/model_2d.pt` + `artifacts/ewma.json`; evaluates over `--seeds`), `service.py` (FastAPI
   `/score`, `/health`; separate container so rule alerts survive a model crash, NFR-4).
 - `docs/model-handover.md` — start here if you work on the model: what the data can and can't tell it.

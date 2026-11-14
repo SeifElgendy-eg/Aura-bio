@@ -28,6 +28,7 @@ Where things live: design in plan 4.3, results in plan 6.3, how to work on the m
 13. Final state
 14. Is the single-signal result good enough?
 15. Open items and limits
+16. Hardening, measurement fixes and the core scaling change
 
 ---
 
@@ -500,12 +501,10 @@ no numbers.**
 
 **Open.**
 
-- Core service must compute baselines exactly like `model/dataset.py` (`baseline_stats`, `normalise`:
-  blend k = 6 with `sim_sd`, cap ±8) and use the new `/score` response.
+- Core scaling: written on local branch `core-scaling` (section 16); waits for the backend owner's review.
 - Missing signals are still filled as "at baseline"; waits for the core service's handling of stale data.
 - "Score rises before any band changes" (plan 6.2) is untested; needs the rule engine.
 - BP and mood amber rules need numbers; sleep amber needs revisiting (section 14).
-- Sweep run length should cover slow ramps fully.
 - Subject-held-out validation of the simulator (section 3).
 
 **Limits.**
@@ -515,3 +514,88 @@ no numbers.**
 - Pattern scenario sizes are the research doc's proposed amber thresholds, not measured effect sizes.
 - k = 6 was fitted on 43 Earth adults (few nights each) and 10 ISS missions.
 - Output is a research concept, not validated on crew data (NFR-10).
+
+---
+
+## 16. Hardening, measurement fixes and the core scaling change
+
+Four improvements on the model side, then a full rerun (3 seeds, 1,000 validation astronauts, 74 scenarios).
+
+**1. Bad input at `/score`.** Found by probing the running service:
+
+- A `NaN` value returned `score: null, anomalous: false`: a sensor glitch read as a healthy astronaut.
+- A value of 1,000,000 was not capped in the service (only the core's scaling capped).
+
+Fix: values must be finite (pydantic `allow_inf_nan=False`) and are clipped at ±8, as in training. The
+first test then exposed a second bug: FastAPI's default 422 reply echoes the rejected value, and `NaN` can't
+be written as JSON, so the reply itself crashed with a 500 (which the core would read as "model down" and
+stop calling for 10 s). A custom handler now returns a 422 without the raw value. Tests: NaN, +inf and
+−inf give 422; 1,000,000 scores exactly like 8.
+
+**2. Model version.** `/health` and every `/score` reply carry `model_version`, the first 12 hex characters
+of a SHA-256 over the trained files, so any stored score can be traced to the model that produced it.
+
+**3. Alarm-line stability: 1,000 validation astronauts (was 300).** Detection ranges across seeds
+tightened (healthy flagged 4–4% instead of 4–5%; stress-autonomic pattern 46–50% instead of 42–52%;
+deconditioning 95–96%). The EWMA line's *number* still differs by seed (32.7, 38.4, 37.6). That turned out
+not to matter: the per-signal scale is fitted per seed too, so the line and the scores move together and
+detection stays the same. My earlier reading ("too few validation astronauts") was only part of the story.
+
+**4. Slow sweep under-measured: sweep runs now 60 days**, plus a 60-day healthy reference
+(`sweep_normal`): over the same 39 days of watching, 10% of healthy astronauts get a false flag, so sweep
+numbers near 10% mean "not detected".
+
+| Size | Fast, 40-day runs | Fast, 60-day runs | Slow, 40-day runs | Slow, 60-day runs |
+| --- | --- | --- | --- | --- |
+| 1 spread | 17% | 25% | 9% | 22% |
+| 2 spreads | 45% | 56% | 21% | 51% |
+| 3 spreads | 70% | 80% | 41% | 77% |
+
+Slow drifts now score close to fast ones (resting HR at 3 spreads: slow 91% vs fast 97%; it read 31% with
+40-day runs). Part of every rise is the longer watch (healthy 4% → 10%). Per signal at 3 spreads, fast:
+sleep duration 100%, dose 98%, resting HR 97%, sleep efficiency 95%, mood 84%, HRV 81%, exercise 78%,
+systolic BP 75%, lapses 69%, CO₂ 27%. At 1 spread most signals sit at 11–15%, i.e. at the healthy level;
+sleep efficiency (53%), exercise (49%), lapses (31%) and sleep duration (31%) stand out. Section 14's
+conclusion holds: single-signal drift is the rules' job, BP and mood need numeric rules, CO₂ belongs to
+the absolute limits.
+
+**Final results (3 seeds, mean and range):**
+
+| Scenario | Flagged | Median days to flag |
+| --- | --- | --- |
+| Healthy | 4% (4–4); under 0.1% of days | — |
+| Sleep debt | 100% | 5 |
+| Deconditioning | 96% (95–96) | 4 |
+| Solar event | 99% (99–100) | 1 |
+| CO₂ creep | 23% (20–24) | 13 |
+| Immune / sensor loss | 5% / 4% (= healthy) | — |
+| Pattern: radiation + immune, vascular | 100% | 4 |
+| Pattern: autonomic illness | 94% | 7 |
+| Pattern: bone resorption | 81% | 4 |
+| Pattern: stress-autonomic | 47% | 12 |
+| Pattern: CO₂ performance | 9% (= healthy) | — |
+
+All within run-to-run variation of section 13: the hardening changed no detection.
+
+**Live check over HTTP** (trained model `a260b84413cd`): `/health` ok with version; a NaN window → 422; a
+sleep-debt-like window (sleep 2.4 spreads low, lapses 3 high for a week) → 0.997 from EWMA, 78% from sleep.
+
+**Core scaling change (local branch `core-scaling`, not pushed).** The `backend` branch's core computed
+model inputs as `(value − mean) / sd`, without blending or cap. Fed that, the model would see narrow
+baselines (CO₂ above all) as huge deviations. On top of `backend` + the model branch:
+
+- `core/domain.py` `baseline(values, spec)`: for model inputs the spread is blended exactly as
+  `model/dataset.py` (it imports `BLEND_K` and `typical_sd`, so there is one implementation);
+- `model_window()` caps at ±8;
+- `core/app.py` passes each model input's `signals.yaml` entry;
+- `tests/test_core.py`: a new test checks the core's z-scores equal `model.dataset.normalise` on a
+  simulated sleep-debt run; the old test was updated for `detector` (was `window_days`) and 3+ days.
+
+All 81 backend tests pass. Merge conflicts (CLAUDE.md: both sides added entries, kept both; handover:
+our results table) were resolved in the merge commit.
+
+**For the backend owner, not changed:** baselines use every reading of the first 14 days, which matches
+training only while each signal has one reading per day (the generator); a sensor publishing more often
+needs a daily value first. The model port is published (`8001:8001`); only the core needs it. A 422 from
+the model is treated as "model down" for 10 s.
+

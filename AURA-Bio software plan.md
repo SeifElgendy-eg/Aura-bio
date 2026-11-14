@@ -426,15 +426,15 @@ These are also the demo. The generator runs at about ten seconds per simulated d
 
 ### 6.3 Model performance
 
-Measured over 3 training seeds (`model.train` prints this; mean and range across seeds), 200 simulated astronauts per scenario (100 per sweep scenario); onset on day 21, flags counted over the 19 days after; "combined" = higher of the two detectors, as the service reports. Alarm lines at 99.5% of 300 validation astronauts; the autoencoder alarm needs 2 days in a row; baseline spread blended (k = 6), deviations capped at ±8 (4.3).
+Measured over 3 training seeds (`model.train` prints this; mean and range across seeds), 200 simulated astronauts per scenario (100 per sweep scenario); onset on day 21, flags counted over the 19 days after; "combined" = higher of the two detectors, as the service reports. Alarm lines at 99.5% of 1,000 validation astronauts; the autoencoder alarm needs 2 days in a row; baseline spread blended (k = 6), deviations capped at ±8 (4.3).
 
 | Scenario | Flagged after onset | Median days to first flag | Before the scaling fixes (Nov 13) |
 | --- | --- | --- | --- |
-| Normal (false alarms) | 4% of astronauts over 19 days (4–5); under 0.1% of normal days | — | 7% |
+| Normal (false alarms) | 4% of astronauts over 19 days (4–4); under 0.1% of normal days | — | 7% |
 | Sleep debt | 100% | 5 | 97% |
-| Deconditioning | 96% (96–97) | 4 | 86% |
-| Solar particle event | 100% (99–100) | 1 (the confirmation day) | 91% |
-| CO₂ creep | 25% (22–28) | 13 | 14%; the rules catch it |
+| Deconditioning | 96% (95–96) | 4 | 86% |
+| Solar particle event | 99% (99–100) | 1 (the confirmation day) | 91% |
+| CO₂ creep | 23% (20–24) | 13 | 14%; the rules catch it |
 | Immune dysregulation | 5% (= normal) | — | lab values are not model inputs; caught by the rules |
 | Sensor loss | 4% (= normal) | — | handled by stale marking (FR-8) |
 
@@ -445,13 +445,13 @@ Research-doc patterns (section 7 and 4.4 of the research doc), model-visible par
 | Radiation + immune (dose +50%) | 100% | 100% |
 | Vascular (systolic +15 mmHg, dose +50%) | 100% | 100% |
 | Autonomic stress / illness (HR +10 bpm, RMSSD −20%, sleep efficiency −10 points) | 94% | 79% |
-| Bone resorption (exercise completion 80%) | 82% | 64% |
-| Stress-associated autonomic (sleep 5 h, RMSSD −20%) | 48% | 23% |
-| CO₂ performance (CO₂ +0.8 mmHg, lapses +20%) | 10% (= normal) | 10%; the rules catch it |
+| Bone resorption (exercise completion 80%) | 81% | 64% |
+| Stress-associated autonomic (sleep 5 h, RMSSD −20%) | 47% | 23% |
+| CO₂ performance (CO₂ +0.8 mmHg, lapses +20%) | 9% (= normal) | 10%; the rules catch it |
 
 Not representable (no model input): viral reactivation, oral mucosal defence, energy deficit.
 
-**Single-signal sweep** (60 scenarios: each input drifting alone in its harmful direction by 1, 2 or 3 population day-to-day spreads, over 3 or 21 days). The model is built to catch several signals moving together, so one signal alone is caught late or not at all unless the drift is large: on average 13% at 1 spread, 33% at 2, 56% at 3 (fast onset 3 spreads: sleep duration 100%, dose 98%, resting HR 78%, systolic BP 56%; CO₂ 18%). Slow onsets reach full size only near the end of the 19 days, so they score lower. Single-signal drift is the threshold rules' job (4.1); CO₂ drifts naturally so much that the model hardly sees a CO₂-only change.
+**Single-signal sweep** (60 scenarios: each input drifting alone in its harmful direction by 1, 2 or 3 population day-to-day spreads, over 3 or 21 days; runs last 60 days, so drifts are watched for 39 days and slow ones hold at full size for about 18; healthy astronauts over the same 39 days: 10% flagged). The model is built to catch several signals moving together, so one signal alone is caught late or not at all unless the drift is large: on average 24% at 1 spread (barely above the 10% healthy level), 54% at 2, 79% at 3 (3 spreads, fast: sleep duration 100%, dose 98%, resting HR 97%, sleep efficiency 95%, systolic BP 75%, lapses 69%; CO₂ 27%). Slow onsets now score close to fast ones (e.g. resting HR 3 spreads 91% vs 97%); with the earlier 40-day runs they could not reach full size and read 31%. Single-signal drift is the threshold rules' job (4.1); CO₂ drifts naturally so much that the model hardly sees a CO₂-only change.
 
 **Scaling fixes (Nov 14).** Tested one at a time over 3 seeds on all 73 scenarios; kept only if no scenario got worse beyond run-to-run variation (about 4 points):
 
