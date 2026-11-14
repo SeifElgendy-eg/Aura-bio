@@ -1,0 +1,60 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('web/static/notifications.js', 'utf8');
+const elements = {};
+function el(id) { return elements[id] ||= { hidden: true, textContent: '', attrs: {}, listeners: {}, setAttribute(k,v) { this.attrs[k]=v; }, addEventListener(k,v) { this.listeners[k]=v; } }; }
+let permissions = 0, permission = 'granted', saved = [], unsubscribed = 0, options;
+const sub = { toJSON: () => ({endpoint:'https://fcm.googleapis.com/wpush/v2/demo', keys:{p256dh:'key',auth:'auth'}}), unsubscribe: async () => { unsubscribed++; return true; } };
+const registration = { pushManager: { getSubscription: async () => null, subscribe: async (value) => { options=value; return sub; } } };
+const context = { Uint8Array, atob: (s) => Buffer.from(s,'base64').toString('binary'), navigator: { serviceWorker: { register: async () => registration, ready: Promise.resolve(registration) } }, document: {getElementById:el},
+ Notification: {requestPermission: async () => { permissions++; return permission; }},
+ fetch: async (url, opts) => {
+  if (url.startsWith('/notifications?')) return {ok:true,json:async () => ({notifications:[{id:10}],cursor:10})};
+  if (url === '/notifications/config') return {ok:true,json:async () => ({enabled:true,public_key:Buffer.alloc(65,4).toString('base64url')})};
+  saved.push(opts); return {ok:true};
+ }, CustomEvent: function(type, data) { this.type=type; this.detail=data.detail; }, console };
+context.window = {isSecureContext:true,PushManager:function(){},Notification:context.Notification,dispatchEvent: (e) => { context.reviewed=e.detail; }};
+vm.runInNewContext(source,context);
+const ui = context.window.AuraNotifications;
+(async () => {
+ await ui.init();
+ assert.equal(permissions,0,'never request browser permission on page load');
+ const event = {id:11,crew_id:'other_crew',level:'red',name:'Sleep change',kind:'new'};
+ ui.receive(event);
+ assert.equal(el('crew-notification').hidden,false);
+ assert.match(el('crew-notification-text').textContent,/OTHER_CREW.*Red.*For all crew/);
+ ui.receive({...event,name:'Duplicate'});
+ assert.doesNotMatch(el('crew-notification-text').textContent,/Duplicate/);
+ el('crew-notification-review').listeners.click(); assert.equal(context.reviewed,'other_crew');
+ el('crew-notification-dismiss').listeners.click(); assert.equal(el('crew-notification').hidden,true);
+ await el('notifications-toggle').listeners.click();
+ assert.equal(permissions,1); assert.equal(options.userVisibleOnly,true); assert.equal(options.applicationServerKey.length,65);
+ assert.equal(saved[0].method,'POST'); assert.equal(el('notifications-toggle').attrs['aria-pressed'],'true');
+ await el('notifications-toggle').listeners.click();
+ assert.equal(saved[1].method,'DELETE'); assert.equal(unsubscribed,1); assert.equal(el('notifications-toggle').attrs['aria-pressed'],'false');
+ permission='denied'; await el('notifications-toggle').listeners.click();
+ assert.equal(saved.length,2); assert.match(el('notification-status').textContent,/blocked/);
+ ui.receive({...event,id:12,name:'Urgent red'});
+ ui.receive({...event,id:13,level:'amber',name:'Later amber'});
+ assert.match(el('crew-notification-text').textContent,/2 crew alerts.*Urgent red/);
+ el('crew-notification-dismiss').listeners.click();
+ assert.match(el('crew-notification-text').textContent,/Later amber/);
+ el('crew-notification-dismiss').listeners.click();
+ assert.equal(el('crew-notification').hidden,true);
+ const app = fs.readFileSync('web/static/app.js','utf8');
+ assert(app.indexOf("st?.type === 'notification'") < app.indexOf('if (st.crew_id !== crew)'), 'notification frames handled before crew filter');
+ assert.match(fs.readFileSync('web/static/index.html','utf8'),/href="\/briefing" download="aura-bio-briefing.txt"/);
+ const handlers = {}, shown = [], opened = [];
+ const self = {location:{origin:'https://aura.test'},addEventListener:(type, fn)=>handlers[type]=fn,skipWaiting:()=>Promise.resolve(),clients:{claim:()=>Promise.resolve(),matchAll:async()=>[],openWindow:async(url)=>opened.push(url)},registration:{showNotification:async(title,opts)=>shown.push({title,opts})}};
+ vm.runInNewContext(fs.readFileSync('web/static/notifications-sw.js','utf8'),{self,URL});
+ let pending;
+ handlers.push({data:{json:()=>({event_id:11,url:'https://evil.test/steal',title:'Crew alert',body:'Simulated'})},waitUntil:p=>pending=p}); await pending;
+ assert.equal(shown[0].opts.tag,'aura-event-11'); assert.equal(shown[0].opts.renotify,false);
+ handlers.notificationclick({notification:{data:shown[0].opts.data,close:()=>{}},waitUntil:p=>pending=p}); await pending;
+ assert.equal(opened[0],'https://aura.test/#crew','never navigate notification clicks to another origin');
+ handlers.notificationclick({notification:{data:{url:'/?crew=other_crew#health'},close:()=>{}},waitUntil:p=>pending=p}); await pending;
+ assert.equal(opened[1],'https://aura.test/?crew=other_crew#health');
+ console.log('Notification UI and worker checks passed');
+})().catch((error)=>{ console.error(error); process.exitCode=1; });

@@ -253,9 +253,14 @@ One JSON message per reading:
 }
 ```
 
-- **Topics:** `aura/<crew_id>/<group>`, group is `vitals`, `cabin`, `radiation` or `labs`. QoS 1.
+- **Topics:** `aura/<crew_id>/<group>`, group is `vitals`, `cabin`, `radiation` or `labs`. QoS 1; the Wokwi ESP32
+  publishes at QoS 0 (its MQTT library has no QoS 1), which the core service still receives.
+- **Timestamp:** `ts` is ISO 8601 **with a time zone**, e.g. `Z`. A `ts` without one is rejected: it would be read
+  as the server's local time and land hours off. Simulated sources send one `ts` per simulated day, starting
+  `2026-11-14T10:00:00Z`.
 - **Signal names** include the unit: `rmssd_ms`, `cabin_co2_mmhg`.
-- **REST:** `GET /crew/<id>/status`, `POST /checkin`, `GET /health`.
+- **REST:** `GET /crew/<id>/status`, `POST /checkin`, `GET /health`. `POST /checkin` takes `ts` as optional: left
+  out, the check-in lands on the crew member's current simulated day, which the app cannot know.
 - **WebSocket:** one channel pushing status and alerts.
 
 ### 4.3 Evaluation logic
