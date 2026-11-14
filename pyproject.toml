@@ -18,6 +18,7 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest", "httpx"]
+hardware = ["pyserial>=3.5"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }

@@ -33,6 +33,10 @@ the plan's Flutter app). Firmware (Wokwi) is on the `hardware` branch.
 - `data/SOURCES.md` — dataset list; raw downloads in `data/raw/` (committed so clones work offline; regenerate with `data/fetch.py`).
 - `artifacts/` — trained model (git-ignored; regenerate with `model.train`).
 
+`hardware/bridge.py` connects Serial output from the `hardware` branch's firmware to the existing MQTT bus.
+It validates and forwards simulated Wokwi messages unchanged with QoS 1; see `hardware/README.md` for file, stdin,
+and optional serial-port input (`uv sync --group hardware`). It never fills missing sensor readings.
+
 ## Commands
 Python is pinned <3.14 (torch); uv picks 3.12. Torch comes from the CPU wheel index.
 If a foreign `VIRTUAL_ENV` is exported in your shell, `unset VIRTUAL_ENV` first.
